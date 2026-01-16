@@ -51,7 +51,7 @@ from azure.azure_cosmos_client import AzureCosmosClient
 from align_rx_json_to_excel import AlignRxDataLoader
 from azure.azure_alignRx_search_setup import AlignRxSearchService
 # Setup logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
 # Load environment variables from .env file
