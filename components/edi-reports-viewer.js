@@ -47,7 +47,9 @@ import {
   Filter,
   Search,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 
 export default function EDIReportsViewer() {
@@ -62,25 +64,34 @@ export default function EDIReportsViewer() {
   const [sortBy, setSortBy] = useState("effective_date");
   const [sortOrder, setSortOrder] = useState("desc");
   const [apiClient] = useState(() => new APIClient(getAuthHeaders));
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 20;
 
-  // Load reports on component mount
+  // Load reports on component mount and when page changes
   useEffect(() => {
-    loadReports();
-  }, []);
+    loadReports(currentPage);
+  }, [currentPage]);
 
   // Filter and sort reports when search term or sort options change
   useEffect(() => {
     filterAndSortReports();
   }, [reports, searchTerm, sortBy, sortOrder]);
 
-  const loadReports = async () => {
+  const loadReports = async (page = 1) => {
     try {
       setLoading(true);
       setError(null);
-      const response = await apiClient.getEdiReports();
+      const response = await apiClient.getEdiReports({ page, pageSize });
       
       if (response.success) {
         setReports(response.reports);
+        setTotalPages(response.total_pages || 1);
+        setTotalCount(response.total_count || 0);
+        setCurrentPage(response.page || page);
       } else {
         setError("Failed to load reports");
       }
@@ -299,7 +310,7 @@ export default function EDIReportsViewer() {
               {sortOrder === "asc" ? "↑" : "↓"}
             </Button>
 
-            <Button onClick={loadReports} variant="outline">
+            <Button onClick={() => { setCurrentPage(1); loadReports(1); }} variant="outline">
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
             </Button>
@@ -379,9 +390,58 @@ export default function EDIReportsViewer() {
             </div>
           )}
 
-          {/* Summary */}
-          <div className="mt-4 text-sm text-gray-600">
-            Showing {filteredReports.length} of {reports.length} reports
+          {/* Pagination Controls */}
+          <div className="mt-4 flex items-center justify-between">
+            <div className="text-sm text-gray-600">
+              Showing {filteredReports.length} of {totalCount} reports (Page {currentPage} of {totalPages})
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage <= 1 || loading}
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Previous
+              </Button>
+              <div className="flex items-center gap-1">
+                {/* Show page numbers */}
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  return (
+                    <Button
+                      key={pageNum}
+                      variant={currentPage === pageNum ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setCurrentPage(pageNum)}
+                      disabled={loading}
+                      className="w-8 h-8 p-0"
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage >= totalPages || loading}
+              >
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -17,27 +17,12 @@ import json
 import pandas as pd
 import numpy as np
 from auth import get_current_user, require_unc_email, get_optional_user
-from azure.azure_blob_container_client import AzureBlobContainerClient
-from azure.azure_client import AzureClient
+from azure_services import AzureBlobContainerClient, AzureClient, AzureCosmosClient
 from edi_search_integration import EDISearchIntegration
-from chs_edi_json_to_excel import CHS_EDI_DataLoader
-from master_edi_json_to_excel import MASTER_EDI_DataLoader
-from align_rx_json_to_excel import AlignRxDataLoader
-from alignRx_parser import AlignRxParser, DuplicateReportError as AlignRxDuplicateReportError
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
-from edi_parser import EDIParser, DuplicateReportError
-# Load environment variables from .env file
-load_dotenv()
-
-# Initialize Azure OpenAI client for query triaging
-azure_openai_client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_KEY"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
-    azure_endpoint=os.getenv("AZURE_AI_RESOURCE_ENDPOINT")
-)
-
-
+from parsers import EDIParser, AlignRxParser, MasterEDIReportParser
+from conversation_memory import UnifiedConversationMemory, ConversationMemory
 # Azure imports
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
@@ -45,65 +30,21 @@ from azure.ai.agents.models import ListSortOrder
 from azure.identity import ClientSecretCredential
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
-from conversation_memory import UnifiedConversationMemory
-from conversation_memory import ConversationMemory
-from azure.azure_cosmos_client import AzureCosmosClient
-from align_rx_json_to_excel import AlignRxDataLoader
-from azure.azure_alignRx_search_setup import AlignRxSearchService
+from models import Message, QueryRequest, QueryResponse, EDIQuery, TransactionResult, EDIResponse, EDIAnalysisRequest
+from json_to_excel import AlignRxDataLoader, CHS_EDI_DataLoader, MASTER_EDI_DataLoader
+
+load_dotenv()
 # Setup logging
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
-# Load environment variables from .env file
-load_dotenv()
 
-# Define request and response models
-class Message(BaseModel):
-    role: str
-    content: str
-
-class QueryRequest(BaseModel):
-    query: str
-    conversation_id: Optional[str] = None
-    messages: Optional[List[Message]] = None
-    mode: Optional[str] = None
-
-class Source(BaseModel):
-    document_name: str
-    text_snippet: Optional[str] = None
-
-class QueryResponse(BaseModel):
-    answer: str
-    sources: List[Source]
-    conversation_id: str
-
-# EDI-specific models
-class EDIQuery(BaseModel):
-    question: str
-    conversation_id: Optional[str] = None
-    messages: Optional[List[Message]] = None
-
-
-class TransactionResult(BaseModel):
-    trace_number: str
-    amount: float
-    effective_date: str
-    originator: str
-    receiver: str
-    page_number: Optional[str] = None
-
-class EDIResponse(BaseModel):
-    answer: str
-    transactions: List[TransactionResult]
-    query_type: str
-    search_performed: bool
-
-
-class EDIAnalysisRequest(BaseModel):
-    start: str  # YYYY-MM-DD
-    end: str    # YYYY-MM-DD
-    mode: str
-
+# Initialize Azure OpenAI client for query triaging
+azure_openai_client = AzureOpenAI(
+    api_key=os.getenv("AZURE_OPENAI_KEY"),
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
+    azure_endpoint=os.getenv("AZURE_AI_RESOURCE_ENDPOINT")
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -983,51 +924,6 @@ async def upload_edi_report(
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
 
-@app.post("/api/update-search-index")
-async def update_search_index(user: Dict = Depends(require_unc_email)):
-    """We do not need this endpoint anymore as we are updating the search index as we upload the EDI reports
-    
-    
-    """
-
-    try:
-        user_email = user.get('email', 'unknown') if user and isinstance(user, dict) else 'unknown'
-        logger.info(f"Starting incremental search index update requested by {user_email}")
-
-        # Initialize the incremental updater
-        updater = IncrementalIndexUpdater()
-
-        # Perform the incremental update
-        result = updater.perform_incremental_update()
-
-        if result["success"]:
-            logger.info(f"Incremental update completed: {result['message']}")
-            return {
-                "success": True,
-                "message": result["message"],
-                "details": {
-                    "new_files_processed": result.get("new_files_count", 0),
-                    "transactions_added": result.get("transactions_added", 0),
-                    "processed_files": result.get("processed_files", [])
-                },
-                "updated_by": user.get('email') if user and isinstance(user, dict) else None
-            }
-        else:
-            logger.error(f"Incremental update failed: {result['message']}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Search index update failed: {result['message']}"
-            )
-
-    except Exception as e:
-        logger.error(f"Error in incremental search index update: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update search index: {str(e)}"
-        )
-
-
-
 
 # Session management endpoints for Cosmos DB
 @app.get("/api/sessions/{user_id}")
@@ -1112,10 +1008,13 @@ async def delete_session(session_id: str, user: Dict = Depends(require_unc_email
 
 
 @app.get("/api/edi/reports")
-async def get_edi_reports(user: Dict = Depends(require_unc_email)):
-    """Get list of EDI reports from Azure Blob Storage"""
+async def get_edi_reports(
+    user: Dict = Depends(require_unc_email),
+    page: int = 1,
+    page_size: int = 20
+):
+    """Get paginated list of EDI reports from Azure Blob Storage"""
     try:
-        # Initialize Azure Blob client for edi-reports container
         connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
         container_name = "master-edi-reports"
 
@@ -1124,49 +1023,51 @@ async def get_edi_reports(user: Dict = Depends(require_unc_email)):
 
         blob_client = AzureBlobContainerClient(connection_string, container_name)
         
-        # List all blobs in the container
-        blobs = blob_client.list_blobs()
+        # Single API call - includes metadata AND properties
+        blobs = list(blob_client.list_blobs(include_metadata=True))
+        
+        # Sort by last_modified (newest first)
+        blobs.sort(key=lambda b: b.last_modified or datetime.min, reverse=True)
+        
+        # Paginate
+        total_count = len(blobs)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_blobs = blobs[start_idx:end_idx]
         
         reports = []
-        for blob in blobs:
-            # Extract metadata from filename if it follows the pattern
-            # EDI Remittance Advice Report_2063_20250819_chs.pdf
+        for blob in paginated_blobs:
             filename = blob.name
-            blob_props = blob_client.get_blob_properties(filename)
-            metadata = blob_client.get_blob_metadata(filename)
+            metadata = blob.metadata or {}
             
-            # Parse filename to extract date and other info
-            import re
-            date_match = re.search(r'(\d{8})', filename)  # Extract YYYYMMDD
-
-            
+            # Parse date from filename (e.g., EDI Remittance Advice Report_2063_20250819_chs.pdf)
+            date_match = re.search(r'(\d{8})', filename)
             parsed_date = None
             if date_match:
-                date_str = date_match.group(1)
                 try:
-                    parsed_date = datetime.strptime(date_str, '%Y%m%d').strftime('%Y-%m-%d')
+                    parsed_date = datetime.strptime(date_match.group(1), '%Y%m%d').strftime('%Y-%m-%d')
                 except ValueError:
-                    parsed_date = None
+                    pass
             
             reports.append({
                 "filename": filename,
                 "url": blob_client.get_blob_url(filename),
-                "size": blob_props.size,
-                "last_modified": blob_props.last_modified.isoformat() if blob_props.last_modified else None,
+                "size": blob.size,
+                "last_modified": blob.last_modified.isoformat() if blob.last_modified else None,
                 "parsed_date": parsed_date,
                 "effective_date": metadata.get("effective_date", "unknown"),
                 "total_amount": metadata.get("total_amount", 0),
                 "uploaded_by": metadata.get("uploaded_by", "unknown"),
-                "content_type": blob_props.content_settings.content_type if blob_props.content_settings else "application/pdf"
+                "content_type": blob.content_settings.content_type if blob.content_settings else "application/pdf"
             })
-        
-        # Sort by last modified date (newest first)
-        reports.sort(key=lambda x: x["last_modified"] or "", reverse=True)
         
         return {
             "success": True,
             "reports": reports,
-            "total_count": len(reports),
+            "total_count": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total_count + page_size - 1) // page_size,
             "retrieved_by": user.get('email') if user and isinstance(user, dict) else None
         }
         

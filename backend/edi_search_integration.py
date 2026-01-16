@@ -13,12 +13,12 @@ from azure.core.credentials import AzureKeyCredential
 from conversation_memory import ConversationMemory
 from conversation_memory import UnifiedConversationMemory
 from fastapi import FastAPI
-from azure.azure_search_setup import EDISearchService
+from azure_services import EDISearchService
 
 import json
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # EDI Search Service Integration

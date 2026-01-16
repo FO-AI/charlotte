@@ -7,7 +7,7 @@ from typing import List, Dict
 
 import pandas as pd
 import openpyxl  
-from azure.azure_alignRx_search_setup import AlignRxSearchService
+from azure_services import AlignRxSearchService
 
 class AlignRxDataLoader:
     def __init__(self, start_date: str, end_date: str):

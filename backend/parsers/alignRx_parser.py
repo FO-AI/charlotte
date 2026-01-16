@@ -9,9 +9,8 @@ import json
 import re
 import pandas as pd
 import sys
-from azure.azure_blob_container_client import AzureBlobContainerClient
+from azure_services import AzureBlobContainerClient, AlignRxSearchService
 import datetime
-from azure.azure_alignRx_search_setup import AlignRxSearchService
 
 class DuplicateReportError(Exception):
     """Exception raised when a report already exists in the search index"""

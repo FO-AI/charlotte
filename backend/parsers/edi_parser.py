@@ -11,11 +11,11 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from edi_preprocessor import EDITransactionExtractor
-from azure.azure_search_setup import EDISearchService
+from azure_services import EDISearchService, AzureBlobContainerClient
 import uuid
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
