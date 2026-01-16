@@ -12,13 +12,14 @@
 'use client';
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import UploadModal from "@/components/upload-modal";
 import { Database, LogOut, User, Upload, RefreshCw , ChartArea, FileSpreadsheet} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth-context-msal";
 import { FileText } from "lucide-react";
 import AlignRxUploadModal from "@/components/align-rx-upload-modal";
+import SessionTimer from "@/components/session-timer";
 
 
 
@@ -36,12 +37,18 @@ import {
 
 export default function Logout() {
   const { user, logout, isAuthenticated } = useAuth();
- 
+  
+  // Memoize to prevent recreation on every render
+  const handleSessionExpired = useCallback(() => {
+    logout();
+  }, [logout]);
 
   return (
-    <div className="flex items-center">
+    <div className="flex items-center gap-3">
       {isAuthenticated() && user && (
-        <DropdownMenu>
+        <>
+          <SessionTimer onSessionExpired={handleSessionExpired} />
+          <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button 
               variant="ghost" 
@@ -73,7 +80,8 @@ export default function Logout() {
               Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
-        </DropdownMenu>
+          </DropdownMenu>
+        </>
       )}
     </div>
   );

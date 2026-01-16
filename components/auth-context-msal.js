@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMsal } from "@azure/msal-react";
 import { loginRequest } from '../lib/auth-config';
+import { sessionUtils } from './session-timer';
 
 const AuthContext = createContext({});
 
@@ -35,8 +36,13 @@ export const AuthProvider = ({ children }) => {
         job_title: account.idTokenClaims?.jobTitle,
         tenant_id: account.tenantId
       });
+      // Start session timer if not already active (handles page refresh)
+      if (!sessionUtils.hasActiveSession()) {
+        sessionUtils.startSession();
+      }
     } else {
       setUser(null);
+      sessionUtils.endSession();
     }
     setLoading(false);
   }, [accounts]);
@@ -54,9 +60,13 @@ export const AuthProvider = ({ children }) => {
 
       try {
         await instance.acquireTokenSilent(silentRequest);
+        // Start fresh session on login
+        sessionUtils.startSession();
       } catch (silentError) {
         // If silent login fails, use popup
         await instance.loginPopup(loginRequest);
+        // Start fresh session on login
+        sessionUtils.startSession();
       }
     } catch (error) {
       console.error('Login failed:', error);
@@ -69,6 +79,9 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       setLoading(true);
+      
+      // Clear session timer
+      sessionUtils.endSession();
       
       // Sign out from MSAL
       await instance.logoutPopup({
