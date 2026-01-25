@@ -7,6 +7,9 @@ import logging
 import sys
 from typing import Optional
 
+from config.settings import Settings
+
+settings = Settings()
 
 # Default format for all logs
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"

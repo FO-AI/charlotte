@@ -2,82 +2,57 @@ import os
 from typing import List, Dict
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
-import logging
+from config import get_logger
 from openai import AzureOpenAI
 from conversation_memory import EDIConversationMemory
-
+from prompts import extract_params_prompt, ai_overview_prompt, rag_response_prompt
+from schemas import TransactionResult
 import json
 
-
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # EDI Search Service Integration
-class EDISearchIntegration:
+class EDIChatService:
     """Integration class for EDI search in Charlotte"""
     
-    def __init__(self, edi_memory: EDIConversationMemory):
+    def __init__(self, edi_memory: EDIConversationMemory, openai_client: AzureOpenAI, search_client: SearchClient):
         self.edi_memory = edi_memory
-        self.search_client = None
-        self.setup_search_client()
+        self.search_client = search_client
+        self.openai_client = openai_client
     
-    def setup_search_client(self):
-        """Initialize Azure Search client"""
-        try:
-            endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
-            api_key = os.getenv("AZURE_SEARCH_API_KEY") 
-            index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "master_edi")
-            
-            if endpoint and api_key:
-                credential = AzureKeyCredential(api_key)
-                self.search_client = SearchClient(
-                    endpoint=endpoint,
-                    index_name=index_name,
-                    credential=credential
-                )
-        except Exception as e:
-            logger.warning(f"Could not initialize Azure Search client: {e}")
+
+    def query(self, question: str, conversation_id: str = None) -> dict:
+        """Query the EDI chat service"""
+        
+        params = self.extract_query_parameters(question)
+        transactions = self.search_transactions(params)
+        transaction_results = [
+            TransactionResult(
+                trace_number=t.get('trace_number', ''),
+                amount=t.get('amount', 0.0),
+                effective_date=t.get('effective_date', ''),
+                originator=t.get('originator', ''),
+                receiver=t.get('receiver', ''),
+                page_number=t.get('page_number')
+            )
+            for t in transactions
+        ]
+        ai_answer = self.generate_rag_response(question, transaction_results, params, conversation_id)
+        return {
+            "answer": ai_answer,
+            "transactions": transaction_results,
+            "params": params
+        }
     
     def extract_query_parameters(self, question: str) -> Dict:
         """Extract structured parameters from natural language query using AI"""
         try:
-            # Setup OpenAI client for Azure
-            openai_client = AzureOpenAI(
-                api_version="2024-12-01-preview",
-                api_key=os.getenv("AZURE_OPENAI_KEY"),
-                azure_endpoint="https://charlotte-ai-resource.openai.azure.com/",
-            )
-            
             # Prompt for parameter extraction
-            system_prompt = """You are an expert at extracting structured data from natural language queries about financial transactions.
-
-If user gives a vague date range like "around 10/3/25", "around 10/10/25", "around 10/15/25". set the date_start to 2 days before the date and the date_end to 2 days after the specified date.
-Extract the following information from the user's query and return it as valid JSON:
-- amount: float or null (exact monetary amount like $92.39, 103.12 dollars, etc.)
-- amount_min: float or null (minimum amount for range queries like "over $100", "more than $50")  
-- amount_max: float or null (maximum amount for range queries like "under $200", "less than $100")
-- date: string in YYYY-MM-DD format or null (specific dates like "June 2, 2025", "2nd June 2025", "6/2/2025")
-- date_start: string in YYYY-MM-DD format or null (start date for ranges like "in June 2025", "from January")
-- date_end: string in YYYY-MM-DD format or null (end date for ranges like "in June 2025", "until March")
-- trace_number: string or null (specific transaction identifier - only if user provides one, NOT if they're asking for it)
-- originator: string or null (company names like BCBS, Blue Cross, United Healthcare, etc.)
-- query_type: string (one of: "count_all", "all_in_period", "amount_range", "date_range", "trace_search", "originator_search", "specific_lookup", "general")
-
-Query type rules:
-- Use "count_all" for queries asking about total number, count, or "how many" transactions in database
-- Use "all_in_period" for queries like "all transactions in June", "show me transactions for 2025", "all payments in Q1"
-- Use "amount_range" for amount-based queries like "transactions over $100", "payments between $50-$200"
-- Use "date_range" for date-based queries like "transactions from Jan to March", "payments last month"
-- Use "trace_search" only when user provides a specific trace number to look up
-- Use "originator_search" when searching by company name
-- Use "specific_lookup" when user asks for specific details about exact amounts/dates
-- Use "general" for questions that don't fit other categories
-
-Return only valid JSON, no other text."""
+            system_prompt = extract_params_prompt
 
             user_prompt = f"Extract parameters from this query: {question}"
             
-            response = openai_client.chat.completions.create(
+            response = self.openai_client.chat.completions.create(
                 model=os.getenv("SMALL_MODEL_NAME", "gpt-4o-mini"),
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -277,13 +252,6 @@ Return only valid JSON, no other text."""
     def generate_rag_response(self, question: str, transactions: List[Dict], params: Dict, conversation_id: str = None) -> str:
         """Generate RAG response using transaction context and EDI conversation memory"""
         try:
-            # Setup OpenAI client
-            openai_client = AzureOpenAI(
-                api_version="2024-12-01-preview",
-                api_key=os.getenv("AZURE_OPENAI_KEY"),
-                azure_endpoint="https://charlotte-ai-resource.openai.azure.com/",
-            )
-            
             # Prepare context from transactions
             context = self.prepare_context(transactions)
             
@@ -302,30 +270,11 @@ Return only valid JSON, no other text."""
                 return f"I have **{count:,}** EDI transactions in the database."
             
             # Create system prompt for RAG response
-            system_prompt = """You are a financial transaction assistant with access to EDI transaction data. 
-            
-Your task is to analyze the provided transaction data and answer the user's question comprehensively.
-
-Guidelines:
-- Use the exact transaction data provided in the context
-- Be precise with numbers, dates, and amounts
-- Format monetary amounts clearly (e.g., $1,234.56)
-- If multiple transactions match, provide summaries and key insights
-- For date ranges, provide totals and breakdowns when relevant
-- Use **bold** for important numbers and key information
-- If the user asks for specific trace numbers, provide them clearly
-- If patterns emerge in the data, highlight them
-- Consider the conversation context to provide more relevant and contextual responses
-- Reference previous queries when relevant to provide continuity
-
-{conversation_context}Transaction Data Context:
-{context}
-
-Answer the user's question based on this transaction data and conversation context."""
+            system_prompt = rag_response_prompt
 
             user_prompt = f"User's question: {question}\n\nPlease analyze the transaction data and provide a comprehensive answer."
             
-            response = openai_client.chat.completions.create(
+            response = self.openai_client.chat.completions.create(
                 model=os.getenv("SMALL_MODEL_NAME", "gpt-4o-mini"),
                 messages=[
                     {"role": "system", "content": system_prompt.format(

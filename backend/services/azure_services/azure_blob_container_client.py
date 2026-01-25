@@ -4,13 +4,16 @@ This module provides a client for interacting with Azure Blob Storage containers
 '''
 
 from azure.storage.blob import BlobServiceClient  # pyright: ignore[reportMissingImports]
-
+from config.logging import get_logger
+from config.settings import Settings
 import os
 from dotenv import load_dotenv  # pyright: ignore[reportMissingImports]
 
-load_dotenv()
+logger = get_logger(__name__)
+settings = Settings()
 
-class AzureBlobContainerClient:
+
+class BlobStorageClient:
     def __init__(self, connection_string: str, container_name: str):
         self.connection_string = connection_string
         self.container_name = container_name
@@ -65,7 +68,7 @@ class AzureBlobContainerClient:
             blob_client.set_blob_metadata(metadata)
             return True
         except Exception as e:
-            print(f"Error setting blob metadata: {e}")
+            logger.error(f"Error setting blob metadata: {e}")
             return False
     
     def get_blob_metadata(self, blob_name: str):
@@ -75,35 +78,35 @@ class AzureBlobContainerClient:
             properties = blob_client.get_blob_properties()
             return properties.metadata if properties.metadata else {}
         except Exception as e:
-            print(f"Error getting blob metadata: {e}")
+            logger.error(f"Error getting blob metadata: {e}")
             return {}
 
 def main():
-    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-    container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME")
+    connection_string = settings.azure_storage_connection_string
+    container_name = settings.azure_storage_container_name
     if not connection_string or not container_name:
-        print("Missing AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_CONTAINER_NAME environment variables")
+        logger.error("Missing AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_CONTAINER_NAME environment variables")
         return
 
-    print("Environment OK: using provided Azure Storage settings.")
+    logger.info("Environment OK: using provided Azure Storage settings.")
     try:
         client = AzureBlobContainerClient(connection_string, container_name)
-        print(f"Connected to container '{container_name}'.")
+        logger.info(f"Connected to container '{container_name}'.")
     except Exception as exc:
-        print(f"Failed to create container client: {exc}")
+        logger.error(f"Failed to create container client: {exc}")
         return
     try:
-        print(f"Listing blobs in container '{container_name}'...")
+        logger.info(f"Listing blobs in container '{container_name}'...")
         count = 0
         for blob in client.list_blobs():
-            print(f"- {blob.name}")
+            logger.info(f"- {blob.name}")
             count += 1
         if count == 0:
-            print("No blobs found.")
+            logger.info("No blobs found.")
         else:
-            print(f"Total blobs: {count}")
+            logger.info(f"Total blobs: {count}")
     except Exception as exc:
-        print(f"Failed to list blobs: {exc}")
+        logger.error(f"Failed to list blobs: {exc}")
 
 if __name__ == "__main__":
     main()

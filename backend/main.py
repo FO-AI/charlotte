@@ -39,6 +39,7 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
 
+settings = Settings()
 # Initialize Azure OpenAI client for query triaging
 azure_openai_client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_KEY"),
@@ -50,18 +51,6 @@ azure_openai_client = AzureOpenAI(
 async def lifespan(app: FastAPI):
     """Application lifespan manager - initializes clients once on startup"""
     print("Starting up Charlotte...")
-    
-    # Initialize Azure clients (done once on startup)
-    azure_client = AzureClient()
-    project_client = azure_client.project_client
-    agent = azure_client.agent
-    
-    # Store clients in app state for global access
-    app.state.project_client = project_client
-    app.state.agent = agent
-    app.state.azure_client = azure_client  # Store the full client for other services
-    
-    # Initialize conversation memory services
     
     print("Charlotte startup complete!")
     yield
