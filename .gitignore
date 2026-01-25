@@ -1,57 +1,53 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+/frontend/node_modules
 /.pnp
 .pnp.js
 
 # testing
-/coverage
+/frontend/coverage
 
 # next.js
-/.next/
-/out/
-
-# production
-/build
-
-*.pyc
-
-# misc
-.DS_Store
-*.pem
-*.bin
-*.sqlite3
-__pycache__/
+/frontend/.next/
+/backend/build/
+.next/
 
 # debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+/frontend/npm-debug.log*
+/frontend/yarn-debug.log*
+/frontend/yarn-error.log*
 
 # local env files
-.env
-.env*.local
+/frontend/.env
+/frontend/.env*.local
+backend/.env
 
 # vercel
-.vercel
+/frontend/.vercel
 
 # typescript
-*.tsbuildinfo
-next-env.d.ts
+/frontend/*.tsbuildinfo
+/frontend/next-env.d.ts
 
-backend/chroma_db/
-backend/documents/
-backend/processed_data/
+# Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+*.egg-info/
+.eggs/
+venv/
 backend/myenv/
-backend/venv/
-azure-rg-template/
-backend/reports/
-backend/remittance_summary.json
-backend/transactions_beta.json
-.gitignore
-backend/beta/transactions_beta.json
+/backend/venv/
 
-backend/beta/all_transactions_beta.json
-.gitignore
-backend/beta/chs_transactions_beta.json
+# Backend data
+backend/chroma_db/
+/backend/documents/
+backend/processed_data/
+/backend/reports/
+/backend/remittance_summary.json
+/backend/transactions_beta.json
+/backend/beta/
+
+# Azure
+/azure-rg-template/

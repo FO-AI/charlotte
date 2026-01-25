@@ -181,13 +181,13 @@ build_and_push_frontend() {
     # Build and push frontend image for linux/amd64
     docker buildx build \
         --platform linux/amd64 \
-        -f Dockerfile \
+        -f frontend/Dockerfile \
         --build-arg NEXT_PUBLIC_API_BASE_URL="$NEXT_PUBLIC_API_BASE_URL" \
         --build-arg NEXT_PUBLIC_AZURE_AD_CLIENT_ID="$AZURE_AD_CLIENT_ID" \
         --build-arg NEXT_PUBLIC_AZURE_AD_TENANT_ID="$AZURE_AD_TENANT_ID" \
         -t "$ACR_SERVER/charlotte-frontend:$IMAGE_TAG" \
         -t "$ACR_SERVER/charlotte-frontend:latest" \
-        . \
+        frontend \
         --push
 
     print_status "Frontend image pushed successfully"

@@ -4,16 +4,7 @@ from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 import logging
 from openai import AzureOpenAI
-from azure.ai.projects import AIProjectClient
-from azure.identity import DefaultAzureCredential
-from azure.ai.agents.models import ListSortOrder
-from azure.identity import ClientSecretCredential
-from azure.search.documents import SearchClient
-from azure.core.credentials import AzureKeyCredential
-from conversation_memory import ConversationMemory
-from conversation_memory import UnifiedConversationMemory
-from fastapi import FastAPI
-from azure_services import EDISearchService
+from conversation_memory import EDIConversationMemory
 
 import json
 
@@ -25,10 +16,8 @@ logger = logging.getLogger(__name__)
 class EDISearchIntegration:
     """Integration class for EDI search in Charlotte"""
     
-    def __init__(self, unified_memory: UnifiedConversationMemory, conversation_memory: ConversationMemory, project_client=None):
-        self.unified_memory = unified_memory
-        self.conversation_memory = conversation_memory
-        self.project_client = project_client
+    def __init__(self, edi_memory: EDIConversationMemory):
+        self.edi_memory = edi_memory
         self.search_client = None
         self.setup_search_client()
     
@@ -37,7 +26,7 @@ class EDISearchIntegration:
         try:
             endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
             api_key = os.getenv("AZURE_SEARCH_API_KEY") 
-            index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "edi-transactions")
+            index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "master_edi")
             
             if endpoint and api_key:
                 credential = AzureKeyCredential(api_key)
@@ -286,7 +275,7 @@ Return only valid JSON, no other text."""
         return "\n".join(context_parts)
     
     def generate_rag_response(self, question: str, transactions: List[Dict], params: Dict, conversation_id: str = None) -> str:
-        """Generate RAG response by feeding transaction context to LLM with unified conversation memory"""
+        """Generate RAG response using transaction context and EDI conversation memory"""
         try:
             # Setup OpenAI client
             openai_client = AzureOpenAI(
@@ -298,49 +287,10 @@ Return only valid JSON, no other text."""
             # Prepare context from transactions
             context = self.prepare_context(transactions)
             
-            # Get unified conversation context if available
+            # Get EDI conversation context if available
             conversation_context = ""
             if conversation_id:
-                # Get EDI conversation context
-                edi_context = self.conversation_memory.get_relevant_context(conversation_id, question)
-                
-                # Get Azure AI Foundry context if available
-                azure_context = ""
-                if conversation_id in self.unified_memory.session_threads:
-                    try:
-                        # Get recent Azure thread messages for context
-                        # Note: project_client should be passed from the endpoint or accessed via dependency injection
-                        # For now, we'll skip this if project_client is not available
-                        if hasattr(self, 'project_client') and self.project_client:
-                            thread = self.unified_memory.session_threads[conversation_id]
-                            messages = self.project_client.agents.messages.list(thread_id=thread.id, order=ListSortOrder.DESCENDING, top=5)
-                        else:
-                            messages = []
-                        
-                        azure_context_parts = []
-                        for msg in messages:
-                            if msg.role == "user":
-                                azure_context_parts.append(f"User (General): {msg.content}")
-                            elif msg.role == "assistant":
-                                # Extract text content from assistant messages
-                                if msg.content and isinstance(msg.content, list):
-                                    for part in msg.content:
-                                        if part.get("type") == "text" and "text" in part and "value" in part["text"]:
-                                            azure_context_parts.append(f"Assistant (General): {part['text']['value']}")
-                                            break
-                        
-                        if azure_context_parts:
-                            azure_context = "Previous general conversation:\n" + "\n".join(azure_context_parts) + "\n\n"
-                    except Exception as e:
-                        logger.warning(f"Could not retrieve Azure context: {str(e)}")
-                
-                # Combine contexts
-                if edi_context and azure_context:
-                    conversation_context = f"{azure_context}{edi_context}"
-                elif edi_context:
-                    conversation_context = edi_context
-                elif azure_context:
-                    conversation_context = azure_context
+                conversation_context = self.edi_memory.get_context(conversation_id, max_messages=5)
             
             # Handle special cases
             if not transactions:
@@ -351,7 +301,7 @@ Return only valid JSON, no other text."""
                 count = transactions[0]["total_count"]
                 return f"I have **{count:,}** EDI transactions in the database."
             
-            # Create system prompt for RAG response with unified conversation context
+            # Create system prompt for RAG response
             system_prompt = """You are a financial transaction assistant with access to EDI transaction data. 
             
 Your task is to analyze the provided transaction data and answer the user's question comprehensively.
