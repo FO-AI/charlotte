@@ -43,7 +43,7 @@ backend/myenv/
 # Backend data
 backend/chroma_db/
 /backend/documents/
-backend/processed_data/
+backend/services/data_loaders/processed_data/
 /backend/reports/
 /backend/remittance_summary.json
 /backend/transactions_beta.json
