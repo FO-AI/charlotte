@@ -1,10 +1,10 @@
-from fastapi import Depends, APIRouter, File, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile
 from typing import Dict
 from utils.auth import require_unc_email
 from config import get_logger
 from services.edi import upload_service, get_dashboard_data_service, analyze_edi_range_service, get_reports_service, get_one_report_service, export_edi_range_service
 from api.dependencies import get_master_edi_blob_client, get_azure_client
-from services import BlobStorageClient, AzureClient
+from services.azure_services import BlobStorageClient, AzureClient
 from schemas import EDIAnalysisRequest
 from azure.search.documents import SearchClient
 from api.dependencies import get_master_edi_search_client, get_chs_edi_search_client

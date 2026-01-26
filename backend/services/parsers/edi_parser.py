@@ -4,20 +4,16 @@ This module parses EDI PDF files and extracts transaction data.
 """
 
 import os
-import json
-import logging
 from typing import List, Dict, Optional
-from datetime import datetime
 from azure.search.documents import SearchClient
 
 from ..edi import EDITransactionExtractor
-from ..azure_services import EDISearchService, BlobStorageClient
+from ..azure_services import EDISearchService
 from config import get_logger
 import uuid
 
-# Configure logging
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
+from config import get_logger
+logger = get_logger(__name__)
 
 
 class DuplicateReportError(Exception):

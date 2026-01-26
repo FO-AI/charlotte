@@ -1,7 +1,6 @@
-from fastapi import APIRouter
-from fastapi import Depends
+from fastapi import APIRouter, Depends
 from typing import Dict
-from schemas.chat import QueryRequest, QueryResponse
+from schemas import QueryRequest
 from utils.auth import require_unc_email
 from config import get_logger
 from services.edi import EDIConversationMemory, EDIChatService

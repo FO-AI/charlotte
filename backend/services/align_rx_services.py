@@ -1,10 +1,10 @@
-from config.logging import get_logger
-from .json_to_excel import AlignRxDataLoader
-from .azure_services import BlobStorageClient, AlignRxSearchService
+from config import get_logger
+from .data_loaders import AlignRxDataLoader
+from .azure_services import AlignRxSearchService, BlobStorageClient
 from .parsers import AlignRxParser
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from config.settings import Settings
+from config import Settings
 from datetime import datetime
 from typing import Dict
 import pandas as pd
@@ -16,7 +16,7 @@ settings = Settings()
 class DuplicateReportError(Exception):
     pass
 
-def export_alignrx_range_service(start: str, end: str, search_client: SearchClient):
+async def export_alignrx_range_service(start: str, end: str, search_client: SearchClient):
     """Export AlignRx reports between start and end dates to Excel and stream the file."""
     try:
         loader = AlignRxDataLoader(start, end, search_client)
@@ -57,7 +57,7 @@ def df_to_records(d):
     return cleaned_records
 
 
-def analyze_alignrx_range_service(start: str, end: str, search_client: SearchClient):
+async def analyze_alignrx_range_service(start: str, end: str, search_client: SearchClient):
 
 
     """Analyze AlignRx reports between start and end dates (YYYY-MM-DD)."""

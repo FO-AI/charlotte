@@ -1,9 +1,10 @@
-from schemas import EDIAnalysisRequest
+from schemas import AlignRxAnalysisRequest
 from fastapi import APIRouter, Depends, File, UploadFile
 from typing import Dict
 from config import get_logger
 from utils.auth import require_unc_email
-from services import analyze_alignrx_range_service, export_alignrx_range_service, upload_alignrx_report_service, BlobStorageClient
+from services import analyze_alignrx_range_service, export_alignrx_range_service, upload_alignrx_report_service
+from services.azure_services import BlobStorageClient
 from api.dependencies import get_alignrx_blob_client
 from azure.search.documents import SearchClient
 from api.dependencies import get_alignrx_search_client
@@ -12,15 +13,17 @@ router = APIRouter(tags=["alignrx"])
 
 
 @router.post("/api/alignrx/export")
-async def export_alignrx_range(request: EDIAnalysisRequest, user: Dict = Depends(require_unc_email), search_client: SearchClient = Depends(get_alignrx_search_client)):
+async def export_alignrx_range(request: AlignRxAnalysisRequest, user: Dict = Depends(require_unc_email), search_client: SearchClient = Depends(get_alignrx_search_client)):
     """Export AlignRx reports between start and end dates to Excel."""
-    return export_alignrx_range_service(request.start, request.end, search_client)
+    return await export_alignrx_range_service(request.start, request.end, search_client)
 
 
 @router.post("/api/alignrx/analyze")
-async def analyze_alignrx_range(request: EDIAnalysisRequest, user: Dict = Depends(require_unc_email), search_client: SearchClient = Depends(get_alignrx_search_client)):
+async def analyze_alignrx_range(request: AlignRxAnalysisRequest, user: Dict = Depends(require_unc_email), search_client: SearchClient = Depends(get_alignrx_search_client)):
     """Analyze AlignRx reports between start and end dates (YYYY-MM-DD)."""
-    return analyze_alignrx_range_service(request.start, request.end, search_client)
+    logger.info('analyzing alignrx range: %s', request)
+
+    return await analyze_alignrx_range_service(request.start, request.end, search_client)
 
 
 @router.post("/api/alignrx/upload-report")

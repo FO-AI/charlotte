@@ -7,7 +7,8 @@ import uvicorn
 
 
 settings = Settings()
-setup_logging()
+setup_logging(level='WARNING')
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

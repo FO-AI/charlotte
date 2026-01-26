@@ -37,6 +37,7 @@ def validate_jwt_token(token: str) -> Dict:
                 payload.get("upn") or 
                 payload.get("unique_name"))
         
+
         user_info = {
             "id": payload.get("oid") or payload.get("sub"),
             "email": email,
@@ -60,12 +61,9 @@ def validate_jwt_token(token: str) -> Dict:
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Dependency to get current authenticated user from JWT token"""
     try:
-        logger.info(f"Received token: {credentials.credentials[:50]}..." if credentials.credentials else "No token")
         user_info = validate_jwt_token(credentials.credentials)
-        logger.info(f"Extracted user info: {user_info}")
         
         if not user_info.get("id"):
-            logger.error(f"No user ID found in token payload: {user_info}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token: missing user ID",

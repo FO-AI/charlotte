@@ -67,7 +67,6 @@ async def upload_service(file: UploadFile, user: Dict, blob_client: BlobStorageC
             # Report already exists in search index - handle gracefully
             is_file_duplicate = True
             parse_error = str(dup_error)
-            logger.info(f"EDI report already exists in search index: {file.filename}")
         except Exception as e:
             parse_error = str(e)
             logger.error(f"Error parsing EDI file: {parse_error}")
@@ -117,7 +116,6 @@ async def upload_service(file: UploadFile, user: Dict, blob_client: BlobStorageC
         str_metadata = {k: str(v) for k, v in metadata.items()}
         blob_client.upload_blob(blob_name, file_content, overwrite=False)
         blob_client.set_blob_metadata(blob_name, str_metadata)
-        logger.info(f"File uploaded to blob storage: {blob_name} with metadata: {metadata}")
 
         # Index transactions in search index
         # Skip CHS indexing if trace numbers are duplicates
@@ -147,7 +145,6 @@ async def upload_service(file: UploadFile, user: Dict, blob_client: BlobStorageC
             logger.warning(f"Failed to index transactions from {blob_name}")
 
         user_email = user.get('email', 'unknown') if user and isinstance(user, dict) else 'unknown'
-        logger.info(f"EDI report processed: {blob_name} by user {user_email}; indexed={index_success}")
 
         # Build message based on duplicate status
         # Note: all_duplicate is already handled above (upload rejected), so we won't reach here if all_duplicate is true
@@ -198,14 +195,12 @@ async def get_dashboard_data_service(blob_client: BlobStorageClient, master_sear
             # Get metadata from blob properties (metadata is now included in list_blobs with include_metadata=True)
             if file.metadata and file.metadata.get("uploaded_by"):
                 uploaded_by = file.metadata.get("uploaded_by")
-                logger.info(f"Found metadata for {file.name}: uploaded_by={uploaded_by}")
             else:
                 # Fallback: fetch blob properties individually if metadata not in list response
                 try:
                     blob_props = blob_client.get_blob_properties(file.name)
                     if blob_props.metadata and blob_props.metadata.get("uploaded_by"):
                         uploaded_by = blob_props.metadata.get("uploaded_by")
-                        logger.info(f"Found metadata via get_blob_properties for {file.name}: uploaded_by={uploaded_by}")
                     else:
                         logger.debug(f"No metadata found for {file.name}, using default 'employee'")
                 except Exception as e:
@@ -222,8 +217,6 @@ async def get_dashboard_data_service(blob_client: BlobStorageClient, master_sear
         
         latest_file = latest_three_files_info[0]
         latest_time = latest_file.get("last_modified")
-        logger.info(f'latest files info: {latest_three_files_info}')
-        logger.info(f'latest time: {latest_time}')
 
 
         current_year = datetime.now().year
@@ -234,11 +227,9 @@ async def get_dashboard_data_service(blob_client: BlobStorageClient, master_sear
         else:
             start_date = f"{current_year}-07-01"
             end_date = f"{current_year +1}-06-30"
-        logger.info(f"Getting EDI dashboard data for {start_date} to {end_date}")
-        from ..json_to_excel import MASTER_EDI_DataLoader
+        from ..data_loaders import MASTER_EDI_DataLoader
         loader = MASTER_EDI_DataLoader(start_date, end_date, master_search_client)
         edi_dashboard_data = loader.get_dashboard_data(start_date, end_date)
-        logger.info(f"EDI dashboard data: {edi_dashboard_data}")
         return {
             "edi_dashboard_data": edi_dashboard_data,
             "latest_three_files": latest_three_files_info,
@@ -251,7 +242,7 @@ async def get_dashboard_data_service(blob_client: BlobStorageClient, master_sear
 
 async def analyze_edi_range_service(request: EDIAnalysisRequest, user: Dict, azure_client: AzureClient, master_search_client: SearchClient, chs_search_client: SearchClient):
     try:
-        from ..json_to_excel import MASTER_EDI_DataLoader, CHS_EDI_DataLoader
+        from ..data_loaders import MASTER_EDI_DataLoader, CHS_EDI_DataLoader
         if request.mode == "master":
             loader = MASTER_EDI_DataLoader(request.start, request.end, master_search_client)
         else:
@@ -334,7 +325,7 @@ async def analyze_edi_range_service(request: EDIAnalysisRequest, user: Dict, azu
 async def export_edi_range_service(request: EDIAnalysisRequest, user: Dict, master_search_client: SearchClient, chs_search_client: SearchClient):
     """Export EDI transactions between start and end dates to Excel and stream the file."""
     try:
-        from ..json_to_excel import MASTER_EDI_DataLoader, CHS_EDI_DataLoader
+        from ..data_loaders import MASTER_EDI_DataLoader, CHS_EDI_DataLoader
         if request.mode == "master":
             loader = MASTER_EDI_DataLoader(request.start, request.end, master_search_client)
         else:

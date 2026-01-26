@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from typing import Dict
-from services import AzureCosmosClient, get_sessions_service, get_session_service_by_id, create_session_service, update_session_service, delete_session_service
+from services.azure_services import AzureCosmosClient
+from services.sessions import get_sessions_service, get_session_service_by_id, create_session_service, update_session_service, delete_session_service
 from utils.auth import require_unc_email
 from api.dependencies import get_cosmos_client
-import logging
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
+from config import get_logger
+logger = get_logger(__name__)
 
 
 router = APIRouter(tags=["sessions"])

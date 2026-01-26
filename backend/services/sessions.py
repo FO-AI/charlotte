@@ -1,9 +1,8 @@
 from .azure_services import AzureCosmosClient
 from fastapi import HTTPException, Request
 from typing import Dict
-import logging
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
+from config import get_logger
+logger = get_logger(__name__)
 
 async def create_session_service(request: Request, user: Dict, cosmos_client: AzureCosmosClient):
     """Create a new session"""

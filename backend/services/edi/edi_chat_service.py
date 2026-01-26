@@ -26,6 +26,16 @@ class EDIChatService:
         
         params = self.extract_query_parameters(question)
         transactions = self.search_transactions(params)
+        
+        # Handle count_all queries - they return special dict format
+        if len(transactions) == 1 and isinstance(transactions[0], dict) and "total_count" in transactions[0]:
+            ai_answer = self.generate_rag_response(question, transactions, params, conversation_id)
+            return {
+                "answer": ai_answer,
+                "transactions": [],
+                "params": params
+            }
+        
         transaction_results = [
             TransactionResult(
                 trace_number=t.get('trace_number', ''),
@@ -214,22 +224,43 @@ class EDIChatService:
             logger.error(f"Search error: {e}")
             return []
     
-    def prepare_context(self, transactions: List[Dict]) -> str:
+    def prepare_context(self, transactions) -> str:
         """Prepare transaction data as context for the LLM"""
         if not transactions:
             return "No transactions found."
-            
-        # Handle count_all queries
-        if len(transactions) == 1 and "total_count" in transactions[0]:
+        
+        # Handle count_all queries (dict format)
+        if len(transactions) == 1 and isinstance(transactions[0], dict) and "total_count" in transactions[0]:
             return f"Total transactions in database: {transactions[0]['total_count']}"
         
-        # Filter out metadata from first transaction if present
+        # Handle TransactionResult objects (Pydantic models)
+        # Check if first item is a TransactionResult by checking if it has attributes instead of dict keys
+        if transactions and hasattr(transactions[0], 'trace_number'):
+            context_parts = []
+            context_parts.append(f"Found {len(transactions)} transactions:\n")
+            
+            for i, t in enumerate(transactions[:50], 1):  # Limit to first 50 for context
+                context_parts.append(
+                    f"{i}. Trace: {t.trace_number or 'N/A'}, "
+                    f"Amount: ${t.amount or 0:.2f}, "
+                    f"Date: {t.effective_date or 'N/A'}, "
+                    f"From: {t.originator or 'N/A'}, "
+                    f"To: {t.receiver or 'N/A'}"
+                )
+            
+            if len(transactions) > 50:
+                context_parts.append(f"\n... and {len(transactions) - 50} more transactions")
+                
+            return "\n".join(context_parts)
+        
+        # Handle dict format (legacy support)
         clean_transactions = []
         for t in transactions:
-            if "_search_metadata" in t:
-                metadata = t.pop("_search_metadata")
-                # Use metadata for summary if needed
-            clean_transactions.append(t)
+            if isinstance(t, dict):
+                if "_search_metadata" in t:
+                    metadata = t.pop("_search_metadata")
+                    # Use metadata for summary if needed
+                clean_transactions.append(t)
         
         # Format transactions as structured context
         context_parts = []
@@ -264,8 +295,8 @@ class EDIChatService:
             if not transactions:
                 return "I couldn't find any transactions matching your query. Please check the criteria and try again."
             
-            # Handle count queries
-            if len(transactions) == 1 and "total_count" in transactions[0]:
+            # Handle count queries (dict format)
+            if len(transactions) == 1 and isinstance(transactions[0], dict) and "total_count" in transactions[0]:
                 count = transactions[0]["total_count"]
                 return f"I have **{count:,}** EDI transactions in the database."
             
