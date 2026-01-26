@@ -3,8 +3,8 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMsal } from "@azure/msal-react";
-import { loginRequest } from '../lib/auth-config';
-import { sessionUtils } from './session-timer';
+import { loginRequest } from './auth-config';
+import { sessionUtils } from '../../components/session-timer';
 
 const AuthContext = createContext({});
 

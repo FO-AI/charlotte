@@ -16,9 +16,9 @@ import { useState, useCallback } from "react";
 import UploadModal from "@/components/upload-modal";
 import { Database, LogOut, User, Upload, RefreshCw , ChartArea, FileSpreadsheet} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/components/auth-context-msal";
+import { useAuth } from "@/lib/auth/auth-context-msal";
 import { FileText } from "lucide-react";
-import AlignRxUploadModal from "@/components/align-rx-upload-modal";
+import AlignRxUploadModal from "@/components/align-rx/align-rx-upload-modal";
 import SessionTimer from "@/components/session-timer";
 
 

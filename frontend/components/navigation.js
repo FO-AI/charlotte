@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/components/auth-context-msal';
+import { useAuth } from '@/lib/auth/auth-context-msal';
 
 export default function Navigation() {
   const [isScrolled, setIsScrolled] = useState(false);

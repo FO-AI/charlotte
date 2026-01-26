@@ -14,7 +14,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Sparkles } from "lucide-react";
 import { APIClient } from "@/lib/api-client";
-import { useAuth } from "@/components/auth-context-msal";
+import { useAuth } from "@/lib/auth/auth-context-msal";
 import DataAnalysisToggle from "@/components/ui/data-analysis-toggle";
 import {
     ResponsiveContainer,

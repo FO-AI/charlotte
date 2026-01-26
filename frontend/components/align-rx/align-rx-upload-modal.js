@@ -14,7 +14,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { APIClient } from "@/lib/api-client";
-import { useAuth } from "@/components/auth-context-msal";
+import { useAuth } from "@/lib/auth/auth-context-msal";
 
 export default function AlignRxUploadModal({ isOpen, onClose }) {
   const { getAuthHeaders } = useAuth();

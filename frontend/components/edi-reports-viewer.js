@@ -17,7 +17,7 @@ The reports are in the pdf format.
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAuth } from "@/components/auth-context-msal";
+import { useAuth } from "@/lib/auth/auth-context-msal";
 import { APIClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

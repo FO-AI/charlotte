@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SendIcon, Loader2, Menu } from "lucide-react";
 import { APIClient } from "@/lib/api-client";
-import { useAuth } from "@/components/auth-context-msal";
+import { useAuth } from "@/lib/auth/auth-context-msal";
 import { azureCosmosClient } from "@/lib/azure-cosmos-client";
 import {
     ResponsiveContainer,

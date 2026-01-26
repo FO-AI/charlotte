@@ -4,11 +4,11 @@ import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SendIcon, Loader2, Menu } from "lucide-react";
-import ChatMessage from "@/components/chat-message";
-import ChatSidebar from "@/components/chat-sidebar";
+import ChatMessage from "@/components/chat/chat-message";
+import ChatSidebar from "@/components/chat/chat-sidebar";
 import Header from "@/components/logout";
 import { APIClient } from "@/lib/api-client";
-import { useAuth } from "@/components/auth-context-msal";
+import { useAuth } from "@/lib/auth/auth-context-msal";
 import { azureCosmosClient } from "@/lib/azure-cosmos-client";
 import Toggle from "@/components/ui/toggle";
 

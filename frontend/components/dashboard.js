@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import UploadModal from '@/components/upload-modal';
-import AlignRxUploadModal from '@/components/align-rx-upload-modal';
+import AlignRxUploadModal from '@/components/align-rx/align-rx-upload-modal';
 import Logout from '@/components/logout';
 import { APIClient } from '@/lib/api-client';
-import { useAuth } from '@/components/auth-context-msal';
+import { useAuth } from '@/lib/auth/auth-context-msal';
 import { useEffect } from 'react';
 import { 
   MessageSquare, 
