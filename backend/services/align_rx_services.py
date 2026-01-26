@@ -1,23 +1,25 @@
 from config.logging import get_logger
-from services import AlignRxDataLoader, BlobStorageClient, AlignRxParser
-from services.azure_services import AlignRxSearchService
-from fastapi import HTTPException, UploadFile, FileResponse, File
+from .json_to_excel import AlignRxDataLoader
+from .azure_services import BlobStorageClient, AlignRxSearchService
+from .parsers import AlignRxParser
+from fastapi import HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from config.settings import Settings
 from datetime import datetime
 from typing import Dict
 import pandas as pd
 import os
-
+from azure.search.documents import SearchClient
 logger = get_logger(__name__)
 settings = Settings()
 
 class DuplicateReportError(Exception):
     pass
 
-def export_alignrx_range_service(start: str, end: str):
+def export_alignrx_range_service(start: str, end: str, search_client: SearchClient):
     """Export AlignRx reports between start and end dates to Excel and stream the file."""
     try:
-        loader = AlignRxDataLoader(start, end)
+        loader = AlignRxDataLoader(start, end, search_client)
         records = loader._load_search_records(start, end)
         df = loader.to_dataframe(records)
         analyses = loader.analyze(df)
@@ -55,12 +57,12 @@ def df_to_records(d):
     return cleaned_records
 
 
-def analyze_alignrx_range_service(start: str, end: str):
+def analyze_alignrx_range_service(start: str, end: str, search_client: SearchClient):
 
 
     """Analyze AlignRx reports between start and end dates (YYYY-MM-DD)."""
     try:
-        loader = AlignRxDataLoader(start, end)
+        loader = AlignRxDataLoader(start, end, search_client)
         records = loader._load_search_records(start, end)
         df = loader.to_dataframe(records)
         analyses = loader.analyze(df)
@@ -79,7 +81,7 @@ def analyze_alignrx_range_service(start: str, end: str):
         logger.error(f"Error analyzing AlignRx range: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error analyzing AlignRx range: {str(e)}")
 
-async def upload_alignrx_report_service(blob_client: BlobStorageClient, user: Dict, file: UploadFile):
+async def upload_alignrx_report_service(blob_client: BlobStorageClient, user: Dict, file: UploadFile, search_client: SearchClient):
     """Upload AlignRx Excel report, parse it, and index parsed data into Azure AI Search."""
     try:
         # Validate file type (AlignRx reports are Excel)
@@ -110,7 +112,7 @@ async def upload_alignrx_report_service(blob_client: BlobStorageClient, user: Di
         is_duplicate_in_index = False
         schema_validation_failed = False
         try:
-            parser = AlignRxParser()
+            parser = AlignRxParser(blob_client, search_client)
             parsed_record = parser.parse_excel_report(temp_path)
         except DuplicateReportError as dup_error:
             # Report already exists in search index - handle gracefully
@@ -207,7 +209,7 @@ async def upload_alignrx_report_service(blob_client: BlobStorageClient, user: Di
             # Remove keys with None to avoid schema mismatches
             index_doc = {k: v for k, v in index_doc.items() if v is not None}
 
-            alignrx_search = AlignRxSearchService()
+            alignrx_search = AlignRxSearchService( search_client=search_client)
             index_success = alignrx_search.upload_documents([index_doc])
         except Exception as e:
             logger.error(f"Error uploading parsed AlignRx document to search index: {str(e)}")

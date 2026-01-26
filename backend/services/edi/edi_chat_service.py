@@ -4,7 +4,7 @@ from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 from config import get_logger
 from openai import AzureOpenAI
-from conversation_memory import EDIConversationMemory
+from .conversation_memory import EDIConversationMemory
 from prompts import extract_params_prompt, ai_overview_prompt, rag_response_prompt
 from schemas import TransactionResult
 import json

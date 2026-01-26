@@ -1,8 +1,9 @@
-from fastapi import HTTPException, UploadFile, Response, FileResponse
+from fastapi import HTTPException, UploadFile, Response
+from fastapi.responses import FileResponse
+
 from typing import Dict
-from services import BlobStorageClient, AzureClient
+from ..azure_services import BlobStorageClient, AzureClient
 from config import get_logger
-from services import EDIParser, MASTER_EDI_DataLoader, CHS_EDI_DataLoader
 from schemas import EDIAnalysisRequest
 import os
 import tempfile
@@ -11,12 +12,13 @@ from datetime import datetime
 import pandas as pd
 import json
 import re
+from azure.search.documents import SearchClient
 logger = get_logger(__name__)
 
 class DuplicateReportError(Exception):
     pass
 
-async def upload_service(file: UploadFile, user: Dict, blob_client: BlobStorageClient):
+async def upload_service(file: UploadFile, user: Dict, blob_client: BlobStorageClient, chs_search_client: SearchClient, master_search_client: SearchClient):
 
     try:
         # Validate file type
@@ -51,7 +53,8 @@ async def upload_service(file: UploadFile, user: Dict, blob_client: BlobStorageC
         blob_name = file.filename
 
         try:
-            parser = EDIParser()
+            from ..parsers import EDIParser
+            parser = EDIParser( chs_search_client=chs_search_client, master_search_client=master_search_client)
             parse_result = parser.parse_edi_file(temp_path, blob_name)
         
             
@@ -174,7 +177,7 @@ async def upload_service(file: UploadFile, user: Dict, blob_client: BlobStorageC
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
 
-async def get_dashboard_data_service(blob_client: BlobStorageClient):
+async def get_dashboard_data_service(blob_client: BlobStorageClient, master_search_client: SearchClient):
     
     try:
         # Get the current status of the master edi storage files in the blob storage
@@ -232,7 +235,8 @@ async def get_dashboard_data_service(blob_client: BlobStorageClient):
             start_date = f"{current_year}-07-01"
             end_date = f"{current_year +1}-06-30"
         logger.info(f"Getting EDI dashboard data for {start_date} to {end_date}")
-        loader = MASTER_EDI_DataLoader(start_date, end_date)
+        from ..json_to_excel import MASTER_EDI_DataLoader
+        loader = MASTER_EDI_DataLoader(start_date, end_date, master_search_client)
         edi_dashboard_data = loader.get_dashboard_data(start_date, end_date)
         logger.info(f"EDI dashboard data: {edi_dashboard_data}")
         return {
@@ -245,12 +249,13 @@ async def get_dashboard_data_service(blob_client: BlobStorageClient):
         raise HTTPException(status_code=500, detail=f"Error getting EDI dashboard data: {str(e)}")
     
 
-async def analyze_edi_range_service(request: EDIAnalysisRequest, user: Dict, azure_client: AzureClient):
+async def analyze_edi_range_service(request: EDIAnalysisRequest, user: Dict, azure_client: AzureClient, master_search_client: SearchClient, chs_search_client: SearchClient):
     try:
+        from ..json_to_excel import MASTER_EDI_DataLoader, CHS_EDI_DataLoader
         if request.mode == "master":
-            loader = MASTER_EDI_DataLoader(request.start, request.end)
+            loader = MASTER_EDI_DataLoader(request.start, request.end, master_search_client)
         else:
-            loader = CHS_EDI_DataLoader(request.start, request.end)
+            loader = CHS_EDI_DataLoader(request.start, request.end, chs_search_client)
 
         records = loader.load_edi_json(request.start, request.end)
         df = loader.to_dataframe(records)
@@ -326,13 +331,14 @@ async def analyze_edi_range_service(request: EDIAnalysisRequest, user: Dict, azu
         logger.error(f"Error analyzing EDI range: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error analyzing EDI range: {str(e)}")
 
-async def export_edi_range_service(request: EDIAnalysisRequest, user: Dict):
+async def export_edi_range_service(request: EDIAnalysisRequest, user: Dict, master_search_client: SearchClient, chs_search_client: SearchClient):
     """Export EDI transactions between start and end dates to Excel and stream the file."""
     try:
+        from ..json_to_excel import MASTER_EDI_DataLoader, CHS_EDI_DataLoader
         if request.mode == "master":
-            loader = MASTER_EDI_DataLoader(request.start, request.end)
+            loader = MASTER_EDI_DataLoader(request.start, request.end, master_search_client)
         else:
-            loader = CHS_EDI_DataLoader(request.start, request.end)
+            loader = CHS_EDI_DataLoader(request.start, request.end, chs_search_client)
             
         records = loader.load_edi_json(request.start, request.end)
         df = loader.to_dataframe(records)

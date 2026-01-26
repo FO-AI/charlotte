@@ -7,19 +7,19 @@ from typing import List, Dict
 
 import pandas as pd
 import openpyxl  
-from azure_services import AlignRxSearchService
+from ..azure_services import AlignRxSearchService
+from config import get_logger
+from azure.search.documents import SearchClient
+logger = get_logger(__name__)
 
 class AlignRxDataLoader:
-    def __init__(self, start_date: str, end_date: str):
+    def __init__(self, start_date: str, end_date: str, search_client: SearchClient):
         self.start_date = start_date
         self.end_date = end_date
         # Initialize Azure AI Search service (preferred data source)
     
-        self.search_service = AlignRxSearchService()
-        # No blob fallback for AlignRx flow
+        self.search_service = AlignRxSearchService( search_client=search_client)
         
-
-
     def _parse_date(self, value: str) -> date:
         """Parse YYYY-MM-DD string to date."""
         return datetime.strptime(value, "%Y-%m-%d").date()
@@ -346,25 +346,3 @@ class AlignRxDataLoader:
         return str(backend_dir / "processed_data" / fname)
 
 
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Load AlignRx JSON from Azure, analyze, and export to Excel")
-    parser.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
-    parser.add_argument("--end", required=True, help="End date YYYY-MM-DD")
-    parser.add_argument("--out", default=None, help="Optional Excel output path")
-    args = parser.parse_args()
-
-    loader = AlignRxDataLoader(args.start, args.end)
-    records = loader._load_search_records(args.start, args.end)
-    df = loader.to_dataframe(records)
-    analyses = loader.analyze(df)
-
-    excel_path = args.out or loader._default_output_path(args.start, args.end)
-    path = loader.export_to_excel(df, analyses, excel_path)
-    print(f"Exported Excel to: {path}")
-    print(f"Rows exported: {len(df)}")
-
-
-if __name__ == "__main__":
-    main()

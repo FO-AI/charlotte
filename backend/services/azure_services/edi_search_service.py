@@ -3,36 +3,18 @@ Azure AI Search integration for EDI transactions
 This script sets up the search index and uploads your processed data
 """
 
-import os
 from typing import List, Dict
-from dotenv import load_dotenv
 from azure.search.documents import SearchClient
-from azure.search.documents.indexes import SearchIndexClient
-from azure.core.credentials import AzureKeyCredential
-import logging
+from config import get_logger
 
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class EDISearchService:
     """Service to manage EDI transactions in Azure AI Search"""
     
-    def __init__(self, index_name: str):
-        load_dotenv()
-        endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
-        api_key = os.getenv("AZURE_SEARCH_API_KEY")
-        self.endpoint = endpoint
-        self.api_key = api_key
+    def __init__(self, index_name: str, search_client: SearchClient):
+        self.search_client = search_client
         self.index_name = index_name
-        self.search_client = SearchClient(
-            endpoint=endpoint,
-            index_name=index_name,
-            credential=AzureKeyCredential(api_key)
-        )
-        self.index_client = SearchIndexClient(
-            endpoint=endpoint,
-            credential=AzureKeyCredential(api_key)
-        )
 
     def upload_documents(self, documents: List[Dict]) -> bool:
         """Upload already-shaped documents to the search index."""

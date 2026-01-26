@@ -5,17 +5,19 @@ import json
 from datetime import datetime, date
 from pathlib import Path
 from typing import List, Dict, Optional
-
+from azure.search.documents import SearchClient
 import pandas as pd
 import openpyxl  
-from azure_services import AzureBlobContainerClient, EDISearchService
+from ..azure_services import EDISearchService
+from config import get_logger
+logger = get_logger(__name__)
 
 class MASTER_EDI_DataLoader:
-    def __init__(self, start_date: str, end_date: str):
+    def __init__(self, start_date: str, end_date: str, search_client: SearchClient):
         self.start_date = start_date
         self.end_date = end_date
         # Initialize Azure AI Search service (preferred data source)
-        self.search_service = EDISearchService(index_name="master-edi")
+        self.search_service = EDISearchService(index_name="master-edi", search_client=search_client)
         
 
     def _parse_date(self, value: str) -> date:

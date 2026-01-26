@@ -7,7 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openai import AzureOpenAI
 from config import Settings, get_logger
 from services.edi import EDIConversationMemory, EDIChatService
-from services import BlobStorageClient, AzureClient, AzureCosmosClient
+from services.azure_services import BlobStorageClient, AzureClient, AzureCosmosClient
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 
@@ -44,22 +44,17 @@ def get_alignrx_blob_client() -> BlobStorageClient:
 def get_azure_client() -> AzureClient:
     """Lazy singleton for Azure AI client"""
     settings = get_settings()
-    return AzureClient(
-        endpoint=settings.azure_ai_project_endpoint,
-        api_key=settings.azure_ai_project_api_key,
-        index_name=settings.azure_ai_project_index_name
-    )
+    return AzureClient()
 
 
-@lru_cache()
-def get_search_client() -> SearchClient:
-    """Lazy singleton for Azure Search client"""
+def _get_search_client(index_name: str) -> SearchClient:
+    """Internal function to create Azure Search client with index name"""
     settings = get_settings()
     try:
         endpoint = settings.azure_search_endpoint
         api_key = settings.azure_search_api_key
-        index_name = settings.azure_master_search_index_name
-        
+        if not index_name:
+            raise ValueError("Index name is required")
         if endpoint and api_key:
             credential = AzureKeyCredential(api_key)
             return SearchClient(
@@ -73,12 +68,30 @@ def get_search_client() -> SearchClient:
 
 
 @lru_cache()
+def get_master_edi_search_client() -> SearchClient:
+    """Lazy singleton for master EDI search client"""
+    return _get_search_client("master-edi")
+
+
+@lru_cache()
+def get_chs_edi_search_client() -> SearchClient:
+    """Lazy singleton for CHS EDI search client"""
+    return _get_search_client("edi-transactions")
+
+
+@lru_cache()
+def get_alignrx_search_client() -> SearchClient:
+    """Lazy singleton for AlignRx search client"""
+    return _get_search_client("alignrx-reports")
+
+
+@lru_cache()
 def get_azure_openai_client() -> AzureOpenAI:
     """Lazy singleton for Azure OpenAI client"""
     settings = get_settings()
     return AzureOpenAI(
         api_key=settings.azure_openai_key,
-        api_version=settings.azure_openai_api_version,
+        api_version="2024-12-01-preview",
         azure_endpoint=settings.azure_ai_resource_endpoint
     )
 
@@ -99,5 +112,5 @@ def get_edi_chat_service() -> EDIChatService:
     return EDIChatService(
         edi_memory=get_edi_memory(),
         openai_client=get_azure_openai_client(),
-        search_client=get_search_client()
+        search_client=get_master_edi_search_client()
     )

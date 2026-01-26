@@ -163,3 +163,4 @@ azure-cosmos
 pandas
 openpyxl
 xlrd
+pydantic-settings

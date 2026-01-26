@@ -1,11 +1,13 @@
 from fastapi import APIRouter
-from fastapi import Depends, HTTPException, ListSortOrder
+from fastapi import Depends
 from typing import Dict
 from schemas.chat import QueryRequest, QueryResponse
 from utils.auth import require_unc_email
 from config import get_logger
-from services import EDIConversationMemory, EDIChatService, chat_service, AzureClient, edi_conversation_history_service
-from dependencies import get_edi_memory, get_edi_chat_service, get_azure_client
+from services.edi import EDIConversationMemory, EDIChatService
+from services.azure_services import AzureClient
+from services.chat_services import chat_service, edi_conversation_history_service
+from api.dependencies import get_edi_memory, get_edi_chat_service, get_azure_client
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["chat"])

@@ -2,10 +2,10 @@ from config import get_logger
 from schemas import QueryRequest, EDIQuery, EDIResponse, TransactionResult
 from typing import Dict
 from datetime import datetime
-from services import query_edi_transactions, query, EDIConversationMemory, EDIChatService
-from fastapi import HTTPException, ListSortOrder
-from utils.auth import require_unc_email
-from services import AzureClient
+from .edi import EDIConversationMemory, EDIChatService
+from .azure_services import AzureClient
+from fastapi import HTTPException
+from azure.ai.agents.models import ListSortOrder
 logger = get_logger(__name__)
 
 async def query_edi_transactions(query: EDIQuery, user: Dict, edi_memory: EDIConversationMemory, edi_chat_service: EDIChatService):

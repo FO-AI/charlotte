@@ -9,22 +9,23 @@ import json
 import re
 import pandas as pd
 import sys
-from azure_services import AzureBlobContainerClient, AlignRxSearchService
+from ..azure_services import BlobStorageClient, AlignRxSearchService
+from azure.search.documents import SearchClient
+from config import get_logger
 import datetime
+
+logger = get_logger(__name__)
 
 class DuplicateReportError(Exception):
     """Exception raised when a report already exists in the search index"""
     pass
 
 class AlignRxParser:
-    def __init__(self):
-        self.search_service = AlignRxSearchService()
+    def __init__(self, blob_client: BlobStorageClient, search_client: SearchClient):
+        self.azure_client = blob_client
+        self.search_service = AlignRxSearchService( search_client=search_client)
         
-        self.azure_client = AzureBlobContainerClient(connection_string=os.getenv("AZURE_STORAGE_CONNECTION_STRING"), container_name='alignrx-reports')
-
-        
-
-
+    
     def parse_excel_report(self, file_path: str) -> dict:
         """
         Parses a single Excel remittance report.

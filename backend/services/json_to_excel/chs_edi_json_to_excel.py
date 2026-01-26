@@ -8,14 +8,17 @@ from typing import List, Dict, Optional
 
 import pandas as pd
 import openpyxl  
-from azure_services import AzureBlobContainerClient, EDISearchService
+from ..azure_services import EDISearchService
+from azure.search.documents import SearchClient
+from config import get_logger
+logger = get_logger(__name__)
 
 class CHS_EDI_DataLoader:
-    def __init__(self, start_date: str, end_date: str):
+    def __init__(self, start_date: str, end_date: str, search_client: SearchClient):
         self.start_date = start_date
         self.end_date = end_date
         # Initialize Azure AI Search service (preferred data source)
-        self.search_service = EDISearchService( index_name="edi-transactions")
+        self.search_service = EDISearchService( index_name="edi-transactions", search_client=search_client)
         
 
     def _parse_date(self, value: str) -> date:

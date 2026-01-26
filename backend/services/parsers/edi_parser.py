@@ -8,10 +8,11 @@ import json
 import logging
 from typing import List, Dict, Optional
 from datetime import datetime
-from dotenv import load_dotenv
+from azure.search.documents import SearchClient
 
-from edi_preprocessor import EDITransactionExtractor
-from azure_services import EDISearchService, AzureBlobContainerClient
+from ..edi import EDITransactionExtractor
+from ..azure_services import EDISearchService, BlobStorageClient
+from config import get_logger
 import uuid
 
 # Configure logging
@@ -27,14 +28,10 @@ class DuplicateReportError(Exception):
 class EDIParser:
     """Parses EDI files and extracts transaction data"""
 
-    def __init__(self):
-        load_dotenv()
-
-        # Initialize processors
+    def __init__(self, chs_search_client: SearchClient, master_search_client: SearchClient):
         self.extractor = EDITransactionExtractor()
-        self.chs_edi_search_service = EDISearchService(index_name="edi-transactions")
-        self.master_edi_search_service = EDISearchService(index_name="master-edi")
-
+        self.chs_edi_search_service = EDISearchService(index_name="edi-transactions", search_client=chs_search_client)
+        self.master_edi_search_service = EDISearchService(index_name="master-edi", search_client=master_search_client)
     def parse_edi_file(self, file_path: str, filename: Optional[str] = None) -> Dict:
         """
         Parse a single EDI file and extract transactions.

@@ -18,27 +18,10 @@ load_dotenv()
 class AlignRxSearchService:
     """Service to manage alignRx reports in Azure AI Search"""
     
-    def __init__(self):
+    def __init__(self, search_client: SearchClient):
         """Initialize the AlignRxSearchService"""
-        endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
-        api_key = os.getenv("AZURE_SEARCH_API_KEY")
-        index_name = os.getenv("AZURE_ALIGN_RX_SEARCH_INDEX_NAME", "alignrx-reports")
+        self.search_client = search_client
 
-        self.endpoint = endpoint
-        self.api_key = api_key
-        self.index_name = index_name
-        self.credential = AzureKeyCredential(api_key)
-        
-        # Initialize clients
-        self.index_client = SearchIndexClient(
-            endpoint=endpoint,
-            credential=self.credential
-        )
-        self.search_client = SearchClient(
-            endpoint=endpoint,
-            index_name=index_name,
-            credential=self.credential
-        )
 
     def upload_documents(self, documents: List[Dict]) -> bool:
         """Upload already-shaped documents to the search index."""
@@ -106,7 +89,7 @@ class AlignRxSearchService:
                 "total_transactions": total_count,
                 "earliest_date": earliest_date,
                 "latest_date": latest_date,
-                "index_name": self.index_name
+                "index_name": self.search_client.index_name
             }
             
         except Exception as e:
@@ -230,7 +213,7 @@ class AlignRxSearchService:
                 "success": True,
                 "deleted_count": total_deleted,
                 "total_before": total_before,
-                "message": f"Successfully deleted {total_deleted} documents from index '{self.index_name}'"
+                "message": f"Successfully deleted {total_deleted} documents from index '{self.search_client.index_name}'"
             }
             
         except Exception as e:
