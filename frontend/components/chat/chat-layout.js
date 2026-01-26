@@ -1,81 +1,41 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SendIcon, Loader2, Menu } from "lucide-react";
 import ChatMessage from "@/components/chat/chat-message";
 import ChatSidebar from "@/components/chat/chat-sidebar";
-import Header from "@/components/logout";
-import { APIClient } from "@/lib/api-client";
-import { useAuth } from "@/lib/auth/auth-context-msal";
-import { azureCosmosClient } from "@/lib/azure-cosmos-client";
 import Toggle from "@/components/ui/toggle";
-
-const DEFAULT_MODE = "EDI";
-
+import useChatSession from "../../hooks/useChatSession";
 
 export default function ChatLayout() {
-  const { getAuthHeaders, user } = useAuth();
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [conversationId, setConversationId] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [chatStarted, setChatStarted] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-  const [mode, setMode] = useState(DEFAULT_MODE);
-  const [modeLocked, setModeLocked] = useState(false);
-  const [conversationModes, setConversationModes] = useState({});
+  const { 
+    conversationId, 
+    messages, 
+    input, 
+    isSubmitting, 
+    chatStarted, 
+    sidebarCollapsed,
+    isMobile, 
+    mode, 
+    modeLocked, 
+    conversationModes,
+    user,
+    getAuthHeaders,
+    setInput,
+    setMode,
+    setSidebarCollapsed,
+    handleDeleteConversation,
+    handleRenameConversation,
+    handleSelectConversation,
+    handleNewChat,
+    handleSubmit,
+    handleKeyDown,
+  } = useChatSession();
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
-
-  // Create API client instance
-  const apiClient = new APIClient(getAuthHeaders);
-
-  const determineModeFromMessages = (chatMessages = []) => {
-    if (!Array.isArray(chatMessages) || chatMessages.length === 0) {
-      return DEFAULT_MODE;
-    }
-
-    for (let idx = chatMessages.length - 1; idx >= 0; idx--) {
-      const message = chatMessages[idx];
-      if (message?.role !== "assistant") continue;
-
-      if (message?.queryType === "edi_search" || (Array.isArray(message?.transactions) && message.transactions.length > 0)) {
-        return "EDI";
-      }
-
-      if (message?.queryType === "general_ai") {
-        return "PROCEDURE";
-      }
-    }
-
-    return DEFAULT_MODE;
-  };
-
-  // Set up auth headers for Azure Cosmos client
-  useEffect(() => {
-    if (getAuthHeaders) {
-      azureCosmosClient.setAuthHeaders(getAuthHeaders);
-    }
-  }, [getAuthHeaders]);
-
-  // Check for mobile on mount and resize
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 1024);
-      // Auto-collapse sidebar on mobile
-      if (window.innerWidth < 1024) {
-        setSidebarCollapsed(true);
-      }
-    };
-
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -93,205 +53,11 @@ export default function ChatLayout() {
     scrollToBottom();
   }, [messages]);
 
-  const generateConversationTitle = (message) => {
-    // Generate a title from the first message (limit to 50 characters)
-    return message.length > 50 ? message.substring(0, 50) + "..." : message;
+  const onToggleCollapse = () => {
+    setSidebarCollapsed(!sidebarCollapsed);
   };
 
-  const handleNewChat = (newSession = null) => {
-    const newConversationId = newSession?.id || null;
-    setMessages([]);
-    setConversationId(newConversationId);
-    setChatStarted(false);
-    setInput("");
-    if (newConversationId && conversationModes[newConversationId]) {
-      setMode(conversationModes[newConversationId]);
-      setModeLocked(Boolean(newSession?.messages?.length));
-    } else {
-      setMode(DEFAULT_MODE);
-      setModeLocked(false);
-    }
 
-    // Auto-collapse sidebar on mobile after creating new chat
-    if (isMobile) {
-      setSidebarCollapsed(true);
-    }
-  };
-
-  const handleSelectConversation = async (id) => {
-    try {
-      // Load conversation from Azure Cosmos DB
-      const session = await azureCosmosClient.getSession(id);
-      if (session) {
-        const sessionMessages = session.messages || [];
-        setConversationId(id);
-        setMessages(sessionMessages);
-        const hasMessages = sessionMessages.length > 0;
-        setChatStarted(hasMessages);
-        const derivedMode = conversationModes[id] || determineModeFromMessages(sessionMessages);
-        setConversationModes((prev) => ({
-          ...prev,
-          [id]: derivedMode,
-        }));
-        setMode(derivedMode);
-        setModeLocked(hasMessages);
-
-        // Auto-collapse sidebar on mobile after selection
-        if (isMobile) {
-          setSidebarCollapsed(true);
-        }
-      }
-    } catch (error) {
-      console.error("Error loading conversation:", error);
-      // Fallback to new chat if loading fails
-      handleNewChat();
-      setConversationId(id);
-    }
-  };
-
-  const handleDeleteConversation = (id) => {
-    setConversationModes((prev) => {
-      if (!(id in prev)) return prev;
-      const { [id]: _removed, ...rest } = prev;
-      return rest;
-    });
-    if (conversationId === id) {
-      handleNewChat();
-    }
-  };
-
-  const handleRenameConversation = (id, newTitle) => {
-    // Sidebar handles the rename, we just need to update title if it's current conversation
-    // This callback is mainly for keeping the UI consistent
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!input.trim() || isSubmitting) return;
-
-    const isFirstMessage = !chatStarted;
-    const userMessage = input.trim();
-    setInput("");
-
-    // Mark chat as started on first message
-    if (isFirstMessage) {
-      setChatStarted(true);
-      setModeLocked(true);
-    }
-
-    // Add user message to chat
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content: userMessage },
-      { role: "assistant", content: "", isLoading: true },
-    ]);
-
-    setIsSubmitting(true);
-
-    try {
-      const data = await apiClient.sendChatQuery({
-        query: userMessage,
-        conversation_id: conversationId,
-        mode: mode,
-        messages: messages.map(msg => ({
-          role: msg.role,
-          content: msg.content
-        }))
-      });
-
-      // Set conversation ID if this is the first message
-      if (!conversationId && data.conversation_id) {
-        const newConversationId = data.conversation_id;
-        setConversationId(newConversationId);
-      }
-
-      // Update assistant message with response
-      const updatedMessages = messages.concat([
-        { role: "user", content: userMessage },
-        {
-          role: "assistant",
-          content: data.response || data.answer,
-          sources: data.sources,
-          transactions: data.data,
-          queryType: data.type,
-          transactionsFound: data.transactions_found,
-        }
-      ]);
-
-      setMessages((prev) =>
-        prev.map((msg, i) => {
-          if (i === prev.length - 1 && msg.isLoading) {
-            return {
-              role: "assistant",
-              content: data.response || data.answer,
-              sources: data.sources,
-              transactions: data.data,
-              queryType: data.type,
-              transactionsFound: data.transactions_found,
-              isLoading: false,
-            };
-          }
-          return msg;
-        })
-      );
-
-      // Persist messages to Azure Cosmos DB
-      try {
-        const currentConversationId = conversationId || data.conversation_id;
-        if (currentConversationId) {
-          setConversationModes((prev) => ({
-            ...prev,
-            [currentConversationId]: mode,
-          }));
-        }
-        if (currentConversationId && user?.email) {
-          if (!conversationId) {
-            // Create new session for first message
-            await azureCosmosClient.createNewSession(
-              currentConversationId,
-              user.email,
-              generateConversationTitle(userMessage)
-            );
-          }
-
-          await azureCosmosClient.updateSession(
-            currentConversationId,
-            user.email,
-            updatedMessages
-          );
-        }
-      } catch (dbError) {
-        console.error("Error persisting messages to database:", dbError);
-        // Don't block the UI if database save fails
-      }
-    } catch (error) {
-      console.error("Error querying API:", error);
-
-      // Update loading message with error
-      setMessages((prev) =>
-        prev.map((msg, i) => {
-          if (i === prev.length - 1 && msg.isLoading) {
-            return {
-              role: "assistant",
-              content: "I'm sorry, I encountered an error while processing your request. Please try again later.",
-              isLoading: false,
-            };
-          }
-          return msg;
-        })
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
-  };
 
   return (
     <>
@@ -332,7 +98,7 @@ export default function ChatLayout() {
           onDeleteConversation={handleDeleteConversation}
           onRenameConversation={handleRenameConversation}
           isCollapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onToggleCollapse={onToggleCollapse}
           isMobile={isMobile}
           user={user}
           getAuthHeaders={getAuthHeaders}
@@ -351,7 +117,7 @@ export default function ChatLayout() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSidebarCollapsed(false)}
+              onClick={onToggleCollapse}
               className="h-12 w-12 p-0 bg-background/90 backdrop-blur-md border-2 border-primary/20 shadow-xl hover:border-primary/40 hover:bg-background transition-all duration-300 hover:scale-110"
             >
               <Menu className="h-5 w-5 text-[#4B9CD3]" />
