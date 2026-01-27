@@ -6,6 +6,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ||
     : 'https://charlotte-backend.azurewebsites.net');
 
 const API_ENDPOINTS = {
+  userDepartment: `${API_BASE_URL}/auth/user-department`,
   chat: `${API_BASE_URL}/api/chat`,
   query: `${API_BASE_URL}/api/query`,
   uploadEdi: `${API_BASE_URL}/api/upload-edi-report`,
@@ -22,6 +23,29 @@ const API_ENDPOINTS = {
 export class APIClient {
   constructor(getAuthHeaders) {
     this.getAuthHeaders = getAuthHeaders;
+  }
+
+  async getUserDepartment() {
+    try {
+      const authHeaders = await this.getAuthHeaders();
+      const response = await fetch(API_ENDPOINTS.userDepartment, {
+        headers: {
+          ...authHeaders,
+        },
+      });
+      if (response.status === 401) {
+        throw new Error('Authentication required');
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `API error: ${response.status}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error("Get user department failed:", error);
+      throw error;
+    }
   }
 
   async sendChatQuery({ query, conversation_id, messages, mode }) {

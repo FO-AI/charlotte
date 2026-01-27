@@ -10,8 +10,11 @@ from services.edi import EDIConversationMemory, EDIChatService
 from services.azure_services import BlobStorageClient, AzureClient, AzureCosmosClient
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
-
+from typing import Dict
+from utils.rba import load_access_config
 logger = get_logger(__name__)
+
+
 
 
 @lru_cache()
@@ -101,6 +104,11 @@ def get_cosmos_client() -> AzureCosmosClient:
     """Lazy singleton for Cosmos DB client"""
     return AzureCosmosClient()
 
+
+@lru_cache()
+def get_access_config() -> Dict:
+    """Lazy singleton for access config"""
+    return load_access_config(get_cosmos_client())
 
 def get_edi_memory() -> EDIConversationMemory:
     """EDI conversation memory - new instance per request for isolation"""

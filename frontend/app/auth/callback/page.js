@@ -2,40 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMsal } from "@azure/msal-react";
+import { useAuth } from '@/lib/auth/auth-context-msal';
 
 export default function AuthCallback() {
-  const router = useRouter();
-  const { instance, accounts } = useMsal();
-  const [loading, setLoading] = useState(true);
   const [localError, setLocalError] = useState(null);
-
+  const router = useRouter();
+  const {isAuthenticated} = useAuth();
   useEffect(() => {
-    const handleCallback = async () => {
-      try {
-        // MSAL automatically handles the authentication response
-        // Check if we have authenticated accounts
-        if (accounts && accounts.length > 0) {
-          // Authentication successful, redirect to chat
-          router.push('/dashboard');
-        } else {
-          // No accounts means authentication failed or in progress
-          setTimeout(() => {
-            if (accounts.length === 0) {
-              setLocalError('Authentication failed - no account found');
-            }
-          }, 2000); // Give MSAL some time to process
-        }
-      } catch (error) {
-        console.error('Callback processing error:', error);
-        setLocalError(error.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    handleCallback();
-  }, [accounts, router]);
+    if (isAuthenticated()) {
+      router.push('/');
+    }
+  }, [isAuthenticated, router]);
 
   if (localError) {
     return (

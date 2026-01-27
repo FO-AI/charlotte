@@ -13,10 +13,16 @@ there will be 4 main buttons:
 'use client';
 
 import ProtectedRoute from "@/components/protected-route";
-import Dashboard from "@/components/dashboard";
+import Dashboard from "@/components/accounting/dashboard";
+import AccessRestrictedPage from "@/app/access-restricted/page";
+import { useAuth } from "@/lib/auth/auth-context-msal";
 {/* TODO: Make the dashboard page more dynamic and interactive */}
 
 export default function DashboardPage() {
+  const { isAccounting, isAdmin } = useAuth();
+  if (!isAccounting && !isAdmin) {
+    return <AccessRestrictedPage />;
+  }
   return (
     <ProtectedRoute>
       <Dashboard />

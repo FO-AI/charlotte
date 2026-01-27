@@ -5,16 +5,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useAuth } from "@/lib/auth/auth-context-msal";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import Navigation from "@/components/navigation";
+import Navigation from "@/components/accounting/navigation";
 
 export default function Home() {
-  const { login, loading, error, isAuthenticated } = useAuth();
+  const { login, loading, error, isAuthenticated, isAccounting, isBanking, isAdmin } = useAuth();
   const router = useRouter();
-
-  // Redirect to chat if already authenticated
+  // Redirect to appropriate dashboard if already authenticated
   useEffect(() => {
     if (isAuthenticated()) {
-      router.push('/dashboard');
+      if (isAccounting) {
+        router.push('/dashboard/accounting');
+      } else if (isBanking) {
+        router.push('/dashboard/banking');
+      } else if (isAdmin) {
+        router.push('/admin-landing');
+      }
     }
   }, [isAuthenticated, router]);
 

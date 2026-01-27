@@ -1,7 +1,7 @@
 'use client';
 
 import ProtectedRoute from "@/components/protected-route";
-import DataAnalysis from "@/components/data-analysis";
+import DataAnalysis from "@/components/accounting/data-analysis";
 
 
 export default function DataAnalysisPage() {

@@ -1,14 +1,25 @@
 from fastapi import HTTPException, Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import os
-import logging
+from config import get_logger
 from typing import Optional, Dict
 import base64
 import json
-from dotenv import load_dotenv
+logger = get_logger(__name__)
 
-logger = logging.getLogger(__name__)
-load_dotenv()
+# Lazy access config - will be loaded on first use
+_access_config_cache: Optional[Dict] = None
+
+
+def _get_access_config() -> Dict:
+    """Lazy loader for access config to avoid circular imports"""
+    global _access_config_cache
+    if _access_config_cache is None:
+        # Import inside function to avoid circular imports at module load time
+        from api.dependencies import get_access_config
+
+        _access_config_cache = get_access_config()
+        logger.debug(f"Access config loaded: {_access_config_cache}")
+    return _access_config_cache
 
 # Security scheme
 security = HTTPBearer()
@@ -38,6 +49,10 @@ def validate_jwt_token(token: str) -> Dict:
                 payload.get("unique_name"))
         
 
+        # Get access config lazily to avoid circular imports
+        access_config = _get_access_config()
+        department = access_config.get('emails', {}).get(email.lower()) if email else None
+        
         user_info = {
             "id": payload.get("oid") or payload.get("sub"),
             "email": email,
@@ -45,9 +60,9 @@ def validate_jwt_token(token: str) -> Dict:
             "given_name": payload.get("given_name"),
             "family_name": payload.get("family_name"),
             "job_title": payload.get("jobTitle"),
-            "tenant_id": payload.get("tid")
+            "tenant_id": payload.get("tid"),
+            "department": department
         }
-        
         return user_info
         
     except Exception as e:
@@ -92,18 +107,4 @@ async def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] 
     except HTTPException:
         return None
 
-# Utility functions for auth checking
-def require_unc_email(user: Dict = Depends(get_current_user)) -> Dict:
-    """Authentication is handled by Azure AD - just return the user"""
-    logger.info(f"Access granted for authenticated user: {user.get('name')} (ID: {user.get('id')})")
-    return user
-
-def check_user_permissions(user: Dict, required_permissions: list = None) -> bool:
-    """Check if user has required permissions (can be extended)"""
-    # Basic implementation - can be extended with role-based access
-    if not user:
-        return False
-    
-    # For now, just check if user has UNC email
-    email = user.get("email", "")
-    return email.endswith("@unc.edu") or email.endswith("@ad.unc.edu")
+# Utility functions for auth checking/ do not need require unc email since we are using Azure AD

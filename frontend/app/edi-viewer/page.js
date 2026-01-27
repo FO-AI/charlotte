@@ -11,7 +11,7 @@ The report will be displayed in a modal
 
 "use client";
 
-import EDIReportsViewer from "@/components/edi-reports-viewer";
+import EDIReportsViewer from "@/components/accounting/edi-reports-viewer";
 import ProtectedRoute from "@/components/protected-route";
 
 

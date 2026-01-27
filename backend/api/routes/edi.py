@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, File, UploadFile
 from typing import Dict
-from utils.auth import require_unc_email
+from utils.rba import check_accounting_or_admin_permissions
 from config import get_logger
 from services.edi import upload_service, get_dashboard_data_service, analyze_edi_range_service, get_reports_service, get_one_report_service, export_edi_range_service
 from api.dependencies import get_master_edi_blob_client, get_azure_client
@@ -15,7 +15,7 @@ router = APIRouter(tags=["edi"])
 @router.post("/api/upload-edi-report")
 async def upload_edi_report(
     file: UploadFile = File(...),
-    user: Dict = Depends(require_unc_email),
+    user: Dict = Depends(check_accounting_or_admin_permissions),
     blob_client: BlobStorageClient = Depends(get_master_edi_blob_client),
     chs_search_client: SearchClient = Depends(get_chs_edi_search_client),
     master_search_client: SearchClient = Depends(get_master_edi_search_client)
@@ -26,7 +26,7 @@ async def upload_edi_report(
 
 @router.get("/api/edi/dashboard_data")
 async def get_dashboard_data(
-    user: Dict = Depends(require_unc_email),
+    user: Dict = Depends(check_accounting_or_admin_permissions),
     blob_client: BlobStorageClient = Depends(get_master_edi_blob_client),
     master_search_client: SearchClient = Depends(get_master_edi_search_client)
 ):
@@ -37,7 +37,7 @@ async def get_dashboard_data(
 @router.post("/api/edi/analyze")
 async def analyze_edi_range(
     request: EDIAnalysisRequest,
-    user: Dict = Depends(require_unc_email),
+    user: Dict = Depends(check_accounting_or_admin_permissions),
     azure_client: AzureClient = Depends(get_azure_client),
     master_search_client: SearchClient = Depends(get_master_edi_search_client),
     chs_search_client: SearchClient = Depends(get_chs_edi_search_client)
@@ -48,7 +48,7 @@ async def analyze_edi_range(
 
 @router.post("/api/edi/export")
 async def export_edi_range(request: EDIAnalysisRequest, 
-    user: Dict = Depends(require_unc_email), 
+    user: Dict = Depends(check_accounting_or_admin_permissions), 
     master_search_client: SearchClient = Depends(get_master_edi_search_client), 
     chs_search_client: SearchClient = Depends(get_chs_edi_search_client)):
     """Export EDI transactions between start and end dates to Excel."""
@@ -57,7 +57,7 @@ async def export_edi_range(request: EDIAnalysisRequest,
 
 @router.get("/api/edi/reports")
 async def get_edi_reports(
-    user: Dict = Depends(require_unc_email),
+    user: Dict = Depends(check_accounting_or_admin_permissions),
     page: int = 1,
     page_size: int = 20,
     blob_client: BlobStorageClient = Depends(get_master_edi_blob_client)
@@ -69,7 +69,7 @@ async def get_edi_reports(
 @router.get("/api/edi/reports/{filename}")
 async def get_edi_report(
     filename: str,
-    user: Dict = Depends(require_unc_email),
+    user: Dict = Depends(check_accounting_or_admin_permissions),
     blob_client: BlobStorageClient = Depends(get_master_edi_blob_client)
 ):
     """Get a specific EDI report file from Azure Blob Storage"""

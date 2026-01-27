@@ -64,7 +64,7 @@ export default function Navigation() {
               </Button>
             ) : (
               <Button 
-                onClick={() => window.location.href = '/dashboard'}
+                onClick={() => window.location.href = '/dashboard/accounting'}
                 className="btn-primary"
                 size="sm"
               >
@@ -126,7 +126,7 @@ export default function Navigation() {
                   </Button>
                 ) : (
                   <Button 
-                    onClick={() => window.location.href = '/dashboard'}
+                    onClick={() => window.location.href = '/dashboard/accounting'}
                     className="btn-primary w-full"
                     size="sm"
                   >

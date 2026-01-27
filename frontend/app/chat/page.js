@@ -1,6 +1,6 @@
 'use client';
 
-import ChatLayout from "@/components/chat/chat-layout";
+import ChatLayout from "@/components/accounting/chat/chat-layout";
 import ProtectedRoute from "@/components/protected-route";
 
 export default function ChatPage() {

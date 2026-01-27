@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useMsal } from "@azure/msal-react";
 import { loginRequest } from './auth-config';
 import { sessionUtils } from '../../components/session-timer';
-
+import { rbaHelper } from './rba-helper';
 const AuthContext = createContext({});
 
 export const useAuth = () => {
@@ -22,82 +22,7 @@ export const AuthProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const { instance, accounts } = useMsal();
   const router = useRouter();
-
-  // Check authentication status on mount and when accounts change
-  useEffect(() => {
-    const account = accounts[0];
-    if (account) {
-      setUser({
-        id: account.localAccountId,
-        email: account.username,
-        name: account.name,
-        given_name: account.idTokenClaims?.given_name,
-        family_name: account.idTokenClaims?.family_name,
-        job_title: account.idTokenClaims?.jobTitle,
-        tenant_id: account.tenantId
-      });
-      // Start session timer if not already active (handles page refresh)
-      if (!sessionUtils.hasActiveSession()) {
-        sessionUtils.startSession();
-      }
-    } else {
-      setUser(null);
-      sessionUtils.endSession();
-    }
-    setLoading(false);
-  }, [accounts]);
-
-  const login = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Try silent login first
-      const silentRequest = {
-        ...loginRequest,
-        account: accounts[0],
-      };
-
-      try {
-        await instance.acquireTokenSilent(silentRequest);
-        // Start fresh session on login
-        sessionUtils.startSession();
-      } catch (silentError) {
-        // If silent login fails, use popup
-        await instance.loginPopup(loginRequest);
-        // Start fresh session on login
-        sessionUtils.startSession();
-      }
-    } catch (error) {
-      console.error('Login failed:', error);
-      setError(error.message || 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const logout = async () => {
-    try {
-      setLoading(true);
-      
-      // Clear session timer
-      sessionUtils.endSession();
-      
-      // Sign out from MSAL
-      await instance.logoutPopup({
-        postLogoutRedirectUri: "/",
-        mainWindowRedirectUri: "/"
-      });
-      
-      setUser(null);
-      router.push('/');
-    } catch (error) {
-      console.error('Logout failed:', error);
-      setError(error.message || 'Logout failed');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [department, setDepartment] = useState(null);
 
   const getAccessToken = async () => {
     try {
@@ -137,9 +62,102 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Check authentication status on mount and when accounts change
+  useEffect(() => {
+    const account = accounts[0];
+    if (account) {
+      const userData = {
+        id: account.localAccountId,
+        email: account.username,
+        name: account.name,
+        given_name: account.idTokenClaims?.given_name,
+        family_name: account.idTokenClaims?.family_name,
+        job_title: account.idTokenClaims?.jobTitle,
+        tenant_id: account.tenantId,
+        department: department
+      };
+      setUser(userData);
+
+      // Fetch department from backend if not already set
+      if (!department) {
+        rbaHelper.fetchUserDepartment(getAuthHeaders, setDepartment, setUser);
+      }
+      // Start session timer if not already active (handles page refresh)
+      if (!sessionUtils.hasActiveSession()) {
+        sessionUtils.startSession();
+      }
+    } else {
+      setUser(null);
+      setDepartment(null);
+      sessionUtils.endSession();
+    }
+    setLoading(false);
+  }, [accounts, department]);
+
+
+
+  const login = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Try silent login first
+      const silentRequest = {
+        ...loginRequest,
+        account: accounts[0],
+      };
+
+      try {
+        await instance.acquireTokenSilent(silentRequest);
+        // Start fresh session on login
+        sessionUtils.startSession();
+      } catch (silentError) {
+        // If silent login fails, use popup
+        await instance.loginPopup(loginRequest);
+        // Start fresh session on login
+        sessionUtils.startSession();
+      }
+    } catch (error) {
+      console.error('Login failed:', error);
+      setError(error.message || 'Login failed');
+    } finally {
+
+      setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      setLoading(true);
+      
+      // Clear session timer
+      sessionUtils.endSession();
+      
+      // Sign out from MSAL
+      await instance.logoutPopup({
+        postLogoutRedirectUri: "/",
+        mainWindowRedirectUri: "/"
+      });
+      
+      setUser(null);
+      setDepartment(null);
+      router.push('/');
+    } catch (error) {
+      console.error('Logout failed:', error);
+      setError(error.message || 'Logout failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const isAuthenticated = () => {
     return !!user && accounts.length > 0;
   };
+
+  // Department-based access flags
+  const isAccounting = department === 'accounting';
+  const isBanking = department === 'banking';
+  const isAdmin = department === 'admin';
 
   const value = {
     user,
@@ -150,7 +168,11 @@ export const AuthProvider = ({ children }) => {
     getAuthHeaders,
     getAccessToken,
     isAuthenticated,
-    setError
+    setError,
+    department,
+    isAccounting,
+    isBanking,
+    isAdmin
   };
 
   return (
