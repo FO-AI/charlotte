@@ -17,7 +17,7 @@ import Dashboard from "@/components/accounting/dashboard";
 import AccessRestrictedPage from "@/app/access-restricted/page";
 import { useAuth } from "@/lib/auth/auth-context-msal";
 {/* TODO: Make the dashboard page more dynamic and interactive */}
-
+import Logout from "@/components/logout";
 export default function DashboardPage() {
   const { isAccounting, isAdmin } = useAuth();
   if (!isAccounting && !isAdmin) {
@@ -25,6 +25,7 @@ export default function DashboardPage() {
   }
   return (
     <ProtectedRoute>
+      <Logout />
       <Dashboard />
     </ProtectedRoute>
   );

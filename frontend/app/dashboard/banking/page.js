@@ -10,7 +10,7 @@ import ProtectedRoute from "@/components/protected-route";
 import BankingDashboard from "@/components/banking/dashboard";
 import AccessRestrictedPage from "@/app/access-restricted/page";
 import { useAuth } from "@/lib/auth/auth-context-msal";
-
+import Logout from "@/components/logout";
 export default function BankingDashboardPage() {
   const { isBanking, isAdmin } = useAuth();
   if (!isBanking && !isAdmin) {
@@ -18,6 +18,7 @@ export default function BankingDashboardPage() {
   }
   return (
     <ProtectedRoute>
+      <Logout />
       <BankingDashboard />
     </ProtectedRoute>
   );

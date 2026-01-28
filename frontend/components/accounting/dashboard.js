@@ -6,7 +6,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import UploadModal from '@/components/accounting/upload-modal';
 import AlignRxUploadModal from '@/components/accounting/align-rx/align-rx-upload-modal';
-import Logout from '@/components/logout';
 import { APIClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth/auth-context-msal';
 import { useEffect } from 'react';
@@ -167,12 +166,6 @@ export default function Dashboard() {
           <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#2B6FA6]/5 rounded-full blur-3xl"></div>
         </div>
 
-        {/* Floating Logout Component */}
-        <div className="fixed top-4 right-4 z-50 fade-in-up">
-          <div className="bg-background/90 backdrop-blur-md border-2 border-primary/20 rounded-2xl shadow-2xl p-2">
-            <Logout />
-          </div>
-        </div>
 
         {/* Full-page loading spinner */}
         <div className="flex flex-col items-center justify-center relative z-10">
@@ -190,13 +183,6 @@ export default function Dashboard() {
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 right-0 w-96 h-96 bg-[#4B9CD3]/5 rounded-full blur-3xl"></div>
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#2B6FA6]/5 rounded-full blur-3xl"></div>
-      </div>
-
-      {/* Floating Logout Component */}
-      <div className="fixed top-4 right-4 z-50 fade-in-up">
-        <div className="bg-background/90 backdrop-blur-md border-2 border-primary/20 rounded-2xl shadow-2xl p-2">
-          <Logout />
-        </div>
       </div>
       
       <div className="container mx-auto px-4 md:px-6 py-8 md:py-12 max-w-7xl relative z-10">

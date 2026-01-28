@@ -5,9 +5,12 @@ from azure.core.credentials import AzureKeyCredential
 from config import get_logger
 from openai import AzureOpenAI
 from .conversation_memory import EDIConversationMemory
-from prompts import extract_params_prompt, ai_overview_prompt, rag_response_prompt
+from prompts import formulate_query_prompt, ai_overview_prompt, rag_response_prompt
 from schemas import TransactionResult
 import json
+from config import Settings
+
+settings = Settings()
 
 logger = get_logger(__name__)
 
@@ -58,12 +61,12 @@ class EDIChatService:
         """Extract structured parameters from natural language query using AI"""
         try:
             # Prompt for parameter extraction
-            system_prompt = extract_params_prompt
+            system_prompt = formulate_query_prompt
 
-            user_prompt = f"Extract parameters from this query: {question}"
+            user_prompt = f"Formulate a query based on this user's question: {question}"
             
             response = self.openai_client.chat.completions.create(
-                model=os.getenv("SMALL_MODEL_NAME", "gpt-4o-mini"),
+                model=settings.azure_openai_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -89,20 +92,15 @@ class EDIChatService:
             
             # Validate and set defaults
             default_params = {
-                "amount": None,
-                "amount_min": None,
-                "amount_max": None,
-                "date": None,
-                "date_start": None,
-                "date_end": None,
-                "trace_number": None,
-                "originator": None,
-                "query_type": "general"
+                "filter_expr": None,
+                "search_text": "*",
+                "query_type": "general",
+                "top": 100
             }
             
             # Merge with defaults
             for key in default_params:
-                if key not in params or params[key] == "":
+                if key not in params or params[key] in ["", None]:
                     params[key] = default_params[key]
             
             logger.info(f"Extracted parameters: {params}")
@@ -112,15 +110,10 @@ class EDIChatService:
             logger.error(f"Error in AI parameter extraction: {e}")
             # Fallback to basic parameters
             return {
-                "amount": None,
-                "amount_min": None,
-                "amount_max": None,
-                "date": None,
-                "date_start": None,
-                "date_end": None,
-                "trace_number": None,
-                "originator": None,
-                "query_type": "general"
+                "filter_expr": None,
+                "search_text": "*",
+                "query_type": "general",
+                "top": 100
             }
     
     def search_transactions(self, params: Dict) -> List[Dict]:
@@ -132,54 +125,30 @@ class EDIChatService:
         logger.info(f"Searching with params: {params}")
         
         try:
-            filter_conditions = []
-            search_text = ""
-            top_count = 100  # Default limit
+            filter_expr = params.get("filter_expr")
+            search_text = params.get("search_text") or "*"
+            query_type = params.get("query_type") or "general"
+            top_count = params.get("top") or 100
             
-            # Build filter conditions based on parameters
-            if params.get("amount"):
-                filter_conditions.append(f"amount eq {params['amount']}")
-            
-            if params.get("amount_min"):
-                filter_conditions.append(f"amount ge {params['amount_min']}")
-                
-            if params.get("amount_max"):
-                filter_conditions.append(f"amount le {params['amount_max']}")
-            
-            if params.get("date"):
-                filter_conditions.append(f"effective_date eq '{params['date']}'")
-                
-            if params.get("date_start"):
-                filter_conditions.append(f"effective_date ge '{params['date_start']}'")
-                
-            if params.get("date_end"):
-                filter_conditions.append(f"effective_date le '{params['date_end']}'")
-            
-            if params.get("trace_number"):
-                filter_conditions.append(f"trace_number eq '{params['trace_number']}'")
-                top_count = 1  # Only need one result for specific trace
-            
-            if params.get("originator"):
-                # Use search text for originator to allow partial matches
-                search_text = params["originator"]
-                
-            # Handle special query types
-            if params.get("query_type") == "count_all":
+            # Handle count queries
+            if query_type in ["count_all", "count_in_period"]:
                 results = self.search_client.search(
                     search_text="*",
+                    filter=filter_expr if filter_expr else None,
                     include_total_count=True,
                     top=0
                 )
                 total_count = results.get_count()
                 logger.info(f"Total transactions count: {total_count}")
-                return [{"total_count": total_count, "query_type": "count_all"}]
+                return [{
+                    "total_count": total_count,
+                    "query_type": query_type,
+                    "filter_expr": filter_expr
+                }]
             
             # If asking for all transactions (e.g., "all transactions in June")
-            if params.get("query_type") == "all_in_period":
-                top_count = 1000  # Increase limit for period queries
-            
-            # Build final filter expression
-            filter_expr = " and ".join(filter_conditions) if filter_conditions else None
+            if query_type == "all_in_period" and top_count < 1000:
+                top_count = 1000
             
             logger.info(f"Filter expression: {filter_expr}")
             logger.info(f"Search text: '{search_text}'")
@@ -196,7 +165,7 @@ class EDIChatService:
             if filter_expr:
                 search_params["filter"] = filter_expr
                 
-            if search_text and params.get("originator"):
+            if query_type == "originator_search":
                 search_params["search_fields"] = ["originator"]
             
             # The ** unpacks the search_params dictionary into keyword arguments
@@ -229,9 +198,12 @@ class EDIChatService:
         if not transactions:
             return "No transactions found."
         
-        # Handle count_all queries (dict format)
+        # Handle count queries (dict format)
         if len(transactions) == 1 and isinstance(transactions[0], dict) and "total_count" in transactions[0]:
-            return f"Total transactions in database: {transactions[0]['total_count']}"
+            count = transactions[0]["total_count"]
+            if transactions[0].get("query_type") == "count_in_period":
+                return f"Total transactions for the requested period: {count}"
+            return f"Total transactions in database: {count}"
         
         # Handle TransactionResult objects (Pydantic models)
         # Check if first item is a TransactionResult by checking if it has attributes instead of dict keys
@@ -298,6 +270,8 @@ class EDIChatService:
             # Handle count queries (dict format)
             if len(transactions) == 1 and isinstance(transactions[0], dict) and "total_count" in transactions[0]:
                 count = transactions[0]["total_count"]
+                if transactions[0].get("query_type") == "count_in_period":
+                    return f"I found **{count:,}** EDI transactions for the requested period."
                 return f"I have **{count:,}** EDI transactions in the database."
             
             # Create system prompt for RAG response
@@ -306,7 +280,7 @@ class EDIChatService:
             user_prompt = f"User's question: {question}\n\nPlease analyze the transaction data and provide a comprehensive answer."
             
             response = self.openai_client.chat.completions.create(
-                model=os.getenv("SMALL_MODEL_NAME", "gpt-4o-mini"),
+                model=settings.azure_openai_model,
                 messages=[
                     {"role": "system", "content": system_prompt.format(
                         conversation_context=conversation_context,

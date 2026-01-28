@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     azure_agent_id: str = os.getenv("AZURE_AGENT_ID")
     azure_openai_key: str = os.getenv("AZURE_OPENAI_KEY")
     azure_ai_resource_endpoint: str = os.getenv("AZURE_AI_RESOURCE_ENDPOINT")
+    azure_openai_model: str = "gpt-5-chat"
 
     azure_storage_container_name: str = os.getenv("AZURE_STORAGE_CONTAINER_NAME")
     azure_storage_connection_string: str = os.getenv("AZURE_STORAGE_CONNECTION_STRING")

@@ -38,40 +38,7 @@ export default function Navigation() {
             <span className="text-xl font-bold text-foreground">Charlotte</span>
           </div>
 
-          {/* Desktop Navigation Links */}
-          <div className="hidden md:flex items-center space-x-8">
-            <a href="#features" className="text-muted-foreground hover:text-foreground transition-colors duration-200">
-              Features
-            </a>
-            <a href="#about" className="text-muted-foreground hover:text-foreground transition-colors duration-200">
-              About
-            </a>
-            <a href="#contact" className="text-muted-foreground hover:text-foreground transition-colors duration-200">
-              Contact
-            </a>
-          </div>
 
-          {/* Desktop CTA Button */}
-          <div className="hidden md:flex items-center space-x-4">
-            {loading ? (
-              <Button 
-                onClick={handleLogin}
-                disabled={true}
-                className="btn-primary"
-                size="sm"
-              >
-                {loading ? "Signing in..." : "Login with UNC"}
-              </Button>
-            ) : (
-              <Button 
-                onClick={() => window.location.href = '/dashboard/accounting'}
-                className="btn-primary"
-                size="sm"
-              >
-                Go to Dashboard
-              </Button>
-            )}
-          </div>
 
           {/* Mobile Menu Button */}
           <button
