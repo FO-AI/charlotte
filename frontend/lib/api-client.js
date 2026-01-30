@@ -1,9 +1,8 @@
 // api-client.js - Updated for MSAL authentication
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 
-  (process.env.NODE_ENV === 'development' 
-    ? 'http://localhost:8000' 
-    : 'https://charlotte-backend.azurewebsites.net');
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  'https://charlotte-backend.azurewebsites.net';
 
 const API_ENDPOINTS = {
   userDepartment: `${API_BASE_URL}/auth/user-department`,

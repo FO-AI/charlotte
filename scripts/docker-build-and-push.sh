@@ -10,6 +10,12 @@ ACR_NAME="charlotteacr"
 RESOURCE_GROUP="rg-primary-unc-foit-charlotte-ai"
 IMAGE_TAG="${IMAGE_TAG:-1.0.0}"
 
+# Resolve project root based on script location
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+FRONTEND_DIR="$ROOT_DIR/frontend"
+BACKEND_DIR="$ROOT_DIR/backend"
+
 # Frontend environment variables
 NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-https://charlotte-backend.azurewebsites.net}"
 
@@ -80,18 +86,42 @@ load_env_files() {
     print_status "Loading environment variables from .env files..."
 
     # Load backend environment variables (contains Azure AD vars we need)
-    if [[ -f "backend/.env" ]]; then
-        print_status "Loading backend variables from backend/.env..."
+    if [[ -f "$BACKEND_DIR/.env" ]]; then
+        print_status "Loading backend variables from $BACKEND_DIR/.env..."
         set -a  # automatically export all variables
-        source backend/.env
+        source "$BACKEND_DIR/.env"
         set +a  # stop auto-exporting
     else
         print_warning "backend/.env not found, skipping backend env vars"
     fi
 
-    # Override API base URL for production deployment
-    print_status "Setting production API base URL..."
-    NEXT_PUBLIC_API_BASE_URL="https://charlotte-backend.azurewebsites.net"
+    # Load frontend environment variables if present (.env then .env.local)
+    if [[ -f "$FRONTEND_DIR/.env" ]]; then
+        print_status "Loading frontend variables from $FRONTEND_DIR/.env..."
+        set -a
+        source "$FRONTEND_DIR/.env"
+        set +a
+    fi
+
+    if [[ -f "$FRONTEND_DIR/.env.local" ]]; then
+        print_status "Loading frontend variables from $FRONTEND_DIR/.env.local..."
+        set -a
+        source "$FRONTEND_DIR/.env.local"
+        set +a
+    fi
+
+    if [[ ! -f "$FRONTEND_DIR/.env" && ! -f "$FRONTEND_DIR/.env.local" ]]; then
+        print_warning "frontend/.env(.local) not found, skipping frontend env vars"
+    fi
+
+    # Ensure production API base URL unless explicitly overridden
+    if [[ -z "$NEXT_PUBLIC_API_BASE_URL" ]]; then
+        print_status "Setting production API base URL..."
+        NEXT_PUBLIC_API_BASE_URL="https://charlotte-backend.azurewebsites.net"
+    elif [[ "$NEXT_PUBLIC_API_BASE_URL" == "http://localhost:8000" ]]; then
+        print_warning "NEXT_PUBLIC_API_BASE_URL is localhost; overriding to production backend URL"
+        NEXT_PUBLIC_API_BASE_URL="https://charlotte-backend.azurewebsites.net"
+    fi
 
     print_status "Environment variables loaded from files"
 }
@@ -99,45 +129,58 @@ load_env_files() {
 # Function to validate environment variables
 validate_env_vars() {
     print_status "Validating environment variables..."
-    
+
+    local validate_frontend="${1:-true}"
+    local validate_backend="${2:-true}"
+
     # Required for frontend
-    if [[ -z "$NEXT_PUBLIC_API_BASE_URL" ]]; then
-        print_warning "NEXT_PUBLIC_API_BASE_URL not set, using default: https://charlotte-backend.azurewebsites.net"
-        NEXT_PUBLIC_API_BASE_URL="https://charlotte-backend.azurewebsites.net"
+    if [[ "$validate_frontend" == "true" ]]; then
+        if [[ -z "$NEXT_PUBLIC_API_BASE_URL" ]]; then
+            print_warning "NEXT_PUBLIC_API_BASE_URL not set, using default: https://charlotte-backend.azurewebsites.net"
+            NEXT_PUBLIC_API_BASE_URL="https://charlotte-backend.azurewebsites.net"
+        fi
     fi
-    
+
     # Check for required backend environment variables
-    local missing_vars=()
-    
-    [[ -z "$AZURE_SEARCH_ENDPOINT" ]] && missing_vars+=("AZURE_SEARCH_ENDPOINT")
-    [[ -z "$AZURE_SEARCH_API_KEY" ]] && missing_vars+=("AZURE_SEARCH_API_KEY")
-    [[ -z "$AZURE_AI_PROJECT_ENDPOINT" ]] && missing_vars+=("AZURE_AI_PROJECT_ENDPOINT")
-    [[ -z "$AZURE_AD_TENANT_ID" ]] && missing_vars+=("AZURE_AD_TENANT_ID")
-    [[ -z "$AZURE_AD_CLIENT_ID" ]] && missing_vars+=("AZURE_AD_CLIENT_ID")
-    [[ -z "$AZURE_AD_CLIENT_SECRET" ]] && missing_vars+=("AZURE_AD_CLIENT_SECRET")
-    [[ -z "$AZURE_AGENT_ID" ]] && missing_vars+=("AZURE_AGENT_ID")
-    [[ -z "$AZURE_OPENAI_KEY" ]] && missing_vars+=("AZURE_OPENAI_KEY")
-    [[ -z "$AZURE_AI_RESOURCE_ENDPOINT" ]] && missing_vars+=("AZURE_AI_RESOURCE_ENDPOINT")
-    [[ -z "$AZURE_STORAGE_CONNECTION_STRING" ]] && missing_vars+=("AZURE_STORAGE_CONNECTION_STRING")
-    [[ -z "$AZURE_STORAGE_ACCOUNT_NAME" ]] && missing_vars+=("AZURE_STORAGE_ACCOUNT_NAME")
-    [[ -z "$AZURE_STORAGE_KEY" ]] && missing_vars+=("AZURE_STORAGE_KEY")
-    [[ -z "$AZURE_COSMOS_ENDPOINT" ]] && missing_vars+=("AZURE_COSMOS_ENDPOINT")
-    [[ -z "$AZURE_COSMOS_KEY" ]] && missing_vars+=("AZURE_COSMOS_KEY")
-    [[ -z "$AZURE_COSMOS_DATABASE" ]] && missing_vars+=("AZURE_COSMOS_DATABASE")
-    [[ -z "$AZURE_COSMOS_CONTAINER" ]] && missing_vars+=("AZURE_COSMOS_CONTAINER")
-    [[ -z "$AZURE_ALIGNRX_REPORTS_CONTAINER" ]] && missing_vars+=("AZURE_ALIGNRX_REPORTS_CONTAINER")
-    if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        print_error "Missing required environment variables:"
-        for var in "${missing_vars[@]}"; do
-            echo "  - $var"
-        done
-        echo
-        print_error "Please set these environment variables before running the script."
-        print_error "You can source them from your .env files or set them manually:"
-        print_error "  source backend/.env && export \$(grep -v '^#' backend/.env | xargs)"
-        exit 1
+    if [[ "$validate_backend" == "true" ]]; then
+        local missing_vars=()
+
+        [[ -z "$AZURE_SEARCH_ENDPOINT" ]] && missing_vars+=("AZURE_SEARCH_ENDPOINT")
+        [[ -z "$AZURE_SEARCH_API_KEY" ]] && missing_vars+=("AZURE_SEARCH_API_KEY")
+        [[ -z "$AZURE_AI_PROJECT_ENDPOINT" ]] && missing_vars+=("AZURE_AI_PROJECT_ENDPOINT")
+        [[ -z "$AZURE_AD_TENANT_ID" ]] && missing_vars+=("AZURE_AD_TENANT_ID")
+        [[ -z "$AZURE_AD_CLIENT_ID" ]] && missing_vars+=("AZURE_AD_CLIENT_ID")
+        [[ -z "$AZURE_AD_CLIENT_SECRET" ]] && missing_vars+=("AZURE_AD_CLIENT_SECRET")
+        [[ -z "$AZURE_AGENT_ID" ]] && missing_vars+=("AZURE_AGENT_ID")
+        [[ -z "$AZURE_OPENAI_KEY" ]] && missing_vars+=("AZURE_OPENAI_KEY")
+        [[ -z "$AZURE_AI_RESOURCE_ENDPOINT" ]] && missing_vars+=("AZURE_AI_RESOURCE_ENDPOINT")
+        [[ -z "$AZURE_MASTER_SEARCH_INDEX" ]] && missing_vars+=("AZURE_MASTER_SEARCH_INDEX")
+        [[ -z "$AZURE_STORAGE_CONTAINER_NAME" ]] && missing_vars+=("AZURE_STORAGE_CONTAINER_NAME")
+        [[ -z "$EDI_JSON_OUTPUT_CONTAINER" ]] && missing_vars+=("EDI_JSON_OUTPUT_CONTAINER")
+        [[ -z "$AZURE_STORAGE_CONNECTION_STRING" ]] && missing_vars+=("AZURE_STORAGE_CONNECTION_STRING")
+        [[ -z "$AZURE_STORAGE_ACCOUNT_NAME" ]] && missing_vars+=("AZURE_STORAGE_ACCOUNT_NAME")
+        [[ -z "$AZURE_STORAGE_KEY" ]] && missing_vars+=("AZURE_STORAGE_KEY")
+        [[ -z "$AZURE_MASTER_EDI_CONTAINER" ]] && missing_vars+=("AZURE_MASTER_EDI_CONTAINER")
+        [[ -z "$AZURE_COSMOS_ENDPOINT" ]] && missing_vars+=("AZURE_COSMOS_ENDPOINT")
+        [[ -z "$AZURE_COSMOS_KEY" ]] && missing_vars+=("AZURE_COSMOS_KEY")
+        [[ -z "$AZURE_COSMOS_CONNECTION_STRING" ]] && missing_vars+=("AZURE_COSMOS_CONNECTION_STRING")
+        [[ -z "$AZURE_COSMOS_DATABASE" ]] && missing_vars+=("AZURE_COSMOS_DATABASE")
+        [[ -z "$AZURE_COSMOS_CONTAINER" ]] && missing_vars+=("AZURE_COSMOS_CONTAINER")
+        [[ -z "$AZURE_COSMOS_PARTITION_KEY" ]] && missing_vars+=("AZURE_COSMOS_PARTITION_KEY")
+        [[ -z "$AZURE_ALIGNRX_REPORTS_CONTAINER" ]] && missing_vars+=("AZURE_ALIGNRX_REPORTS_CONTAINER")
+        if [[ ${#missing_vars[@]} -gt 0 ]]; then
+            print_error "Missing required environment variables:"
+            for var in "${missing_vars[@]}"; do
+                echo "  - $var"
+            done
+            echo
+            print_error "Please set these environment variables before running the script."
+            print_error "You can source them from your .env files or set them manually:"
+            print_error "  source $BACKEND_DIR/.env && export \$(grep -v '^#' \"$BACKEND_DIR/.env\" | xargs)"
+            exit 1
+        fi
     fi
-    
+
     print_status "Environment variables validated"
 }
 
@@ -181,13 +224,13 @@ build_and_push_frontend() {
     # Build and push frontend image for linux/amd64
     docker buildx build \
         --platform linux/amd64 \
-        -f frontend/Dockerfile \
+        -f "$FRONTEND_DIR/Dockerfile" \
         --build-arg NEXT_PUBLIC_API_BASE_URL="$NEXT_PUBLIC_API_BASE_URL" \
         --build-arg NEXT_PUBLIC_AZURE_AD_CLIENT_ID="$AZURE_AD_CLIENT_ID" \
         --build-arg NEXT_PUBLIC_AZURE_AD_TENANT_ID="$AZURE_AD_TENANT_ID" \
         -t "$ACR_SERVER/charlotte-frontend:$IMAGE_TAG" \
         -t "$ACR_SERVER/charlotte-frontend:latest" \
-        frontend \
+        "$FRONTEND_DIR" \
         --push
 
     print_status "Frontend image pushed successfully"
@@ -200,10 +243,10 @@ build_and_push_backend() {
     # Build and push backend image for linux/amd64
     docker buildx build \
         --platform linux/amd64 \
-        -f backend/Dockerfile \
+        -f "$BACKEND_DIR/Dockerfile" \
         -t "$ACR_SERVER/charlotte-backend:$IMAGE_TAG" \
         -t "$ACR_SERVER/charlotte-backend:latest" \
-        backend \
+        "$BACKEND_DIR" \
         --push
 
     print_status "Backend image pushed successfully"
@@ -213,65 +256,72 @@ build_and_push_backend() {
 update_web_apps() {
     print_status "Updating web apps with new images and environment variables..."
     
-    # Update frontend web app
-    print_status "Updating frontend web app..."
-    az webapp config container set \
-        --name "charlotte-frontend" \
-        --resource-group "$RESOURCE_GROUP" \
-        --container-image-name "$ACR_SERVER/charlotte-frontend:$IMAGE_TAG" \
-        --container-registry-url "https://$ACR_SERVER"
-    
-    # Set frontend environment variables
-    print_status "Setting frontend environment variables..."
-    az webapp config appsettings set \
-        --name "charlotte-frontend" \
-        --resource-group "$RESOURCE_GROUP" \
-        --settings \
-            "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL" \
-            "NODE_ENV=production" \
-            "NEXT_PUBLIC_AZURE_AD_CLIENT_ID=$AZURE_AD_CLIENT_ID" \
-            "NEXT_PUBLIC_AZURE_AD_TENANT_ID=$AZURE_AD_TENANT_ID"
+    if [[ "$BACKEND_ONLY" == false ]]; then
+        # Update frontend web app
+        print_status "Updating frontend web app..."
+        az webapp config container set \
+            --name "charlotte-frontend" \
+            --resource-group "$RESOURCE_GROUP" \
+            --container-image-name "$ACR_SERVER/charlotte-frontend:$IMAGE_TAG" \
+            --container-registry-url "https://$ACR_SERVER"
+
+        # Set frontend environment variables
+        print_status "Setting frontend environment variables..."
+        az webapp config appsettings set \
+            --name "charlotte-frontend" \
+            --resource-group "$RESOURCE_GROUP" \
+            --settings \
+                "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL" \
+                "NODE_ENV=production" \
+                "NEXT_PUBLIC_AZURE_AD_CLIENT_ID=$AZURE_AD_CLIENT_ID" \
+                "NEXT_PUBLIC_AZURE_AD_TENANT_ID=$AZURE_AD_TENANT_ID"
+    fi
    
     
-    # Update backend web app
-    print_status "Updating backend web app..."
-    az webapp config container set \
-        --name "charlotte-backend" \
-        --resource-group "$RESOURCE_GROUP" \
-        --container-image-name "$ACR_SERVER/charlotte-backend:$IMAGE_TAG" \
-        --container-registry-url "https://$ACR_SERVER"
-    
-    # Set backend environment variables
-    print_status "Setting backend environment variables..."
-    az webapp config appsettings set \
-        --name "charlotte-backend" \
-        --resource-group "$RESOURCE_GROUP" \
-        --settings \
-            "AZURE_SEARCH_ENDPOINT=$AZURE_SEARCH_ENDPOINT" \
-            "AZURE_SEARCH_API_KEY=$AZURE_SEARCH_API_KEY" \
-            "AZURE_SEARCH_INDEX_NAME=$AZURE_SEARCH_INDEX_NAME" \
-            "AZURE_AI_PROJECT_ENDPOINT=$AZURE_AI_PROJECT_ENDPOINT" \
-            "AZURE_AD_TENANT_ID=$AZURE_AD_TENANT_ID" \
-            "AZURE_AD_CLIENT_ID=$AZURE_AD_CLIENT_ID" \
-            "AZURE_AD_CLIENT_SECRET=$AZURE_AD_CLIENT_SECRET" \
-            "AZURE_AGENT_ID=$AZURE_AGENT_ID" \
-            "AZURE_OPENAI_KEY=$AZURE_OPENAI_KEY" \
-            "SMALL_MODEL_NAME=$SMALL_MODEL_NAME" \
-            "AZURE_AI_RESOURCE_ENDPOINT=$AZURE_AI_RESOURCE_ENDPOINT" \
-            "AZURE_AD_REDIRECT_URI=$AZURE_AD_REDIRECT_URI" \
-            "AZURE_STORAGE_CONTAINER_NAME=$AZURE_STORAGE_CONTAINER_NAME" \
-            "EDI_JSON_OUTPUT_CONTAINER=$EDI_JSON_OUTPUT_CONTAINER" \
-            "AZURE_STORAGE_CONNECTION_STRING=$AZURE_STORAGE_CONNECTION_STRING" \
-            "AZURE_STORAGE_ACCOUNT_NAME=$AZURE_STORAGE_ACCOUNT_NAME" \
-            "AZURE_STORAGE_KEY=$AZURE_STORAGE_KEY" \
-            "AZURE_COSMOS_ENDPOINT=$AZURE_COSMOS_ENDPOINT" \
-            "AZURE_COSMOS_KEY=$AZURE_COSMOS_KEY" \
-            "AZURE_COSMOS_DATABASE=$AZURE_COSMOS_DATABASE" \
-            "AZURE_COSMOS_CONTAINER=$AZURE_COSMOS_CONTAINER" \
-            "AZURE_ALIGNRX_REPORTS_CONTAINER=$AZURE_ALIGNRX_REPORTS_CONTAINER" \
-            "PYTHONDONTWRITEBYTECODE=1" \
-            "PYTHONUNBUFFERED=1" \
-    
+    if [[ "$FRONTEND_ONLY" == false ]]; then
+        # Update backend web app
+        print_status "Updating backend web app..."
+        az webapp config container set \
+            --name "charlotte-backend" \
+            --resource-group "$RESOURCE_GROUP" \
+            --container-image-name "$ACR_SERVER/charlotte-backend:$IMAGE_TAG" \
+            --container-registry-url "https://$ACR_SERVER"
+
+        # Set backend environment variables
+        print_status "Setting backend environment variables..."
+        az webapp config appsettings set \
+            --name "charlotte-backend" \
+            --resource-group "$RESOURCE_GROUP" \
+            --settings \
+                "AZURE_SEARCH_ENDPOINT=$AZURE_SEARCH_ENDPOINT" \
+                "AZURE_SEARCH_API_KEY=$AZURE_SEARCH_API_KEY" \
+                "AZURE_SEARCH_INDEX_NAME=$AZURE_SEARCH_INDEX_NAME" \
+                "AZURE_AI_PROJECT_ENDPOINT=$AZURE_AI_PROJECT_ENDPOINT" \
+                "AZURE_AD_TENANT_ID=$AZURE_AD_TENANT_ID" \
+                "AZURE_AD_CLIENT_ID=$AZURE_AD_CLIENT_ID" \
+                "AZURE_AD_CLIENT_SECRET=$AZURE_AD_CLIENT_SECRET" \
+                "AZURE_AGENT_ID=$AZURE_AGENT_ID" \
+                "AZURE_OPENAI_KEY=$AZURE_OPENAI_KEY" \
+                "SMALL_MODEL_NAME=$SMALL_MODEL_NAME" \
+                "AZURE_AI_RESOURCE_ENDPOINT=$AZURE_AI_RESOURCE_ENDPOINT" \
+                "AZURE_AD_REDIRECT_URI=$AZURE_AD_REDIRECT_URI" \
+                "AZURE_MASTER_SEARCH_INDEX=$AZURE_MASTER_SEARCH_INDEX" \
+                "AZURE_STORAGE_CONTAINER_NAME=$AZURE_STORAGE_CONTAINER_NAME" \
+                "EDI_JSON_OUTPUT_CONTAINER=$EDI_JSON_OUTPUT_CONTAINER" \
+                "AZURE_STORAGE_CONNECTION_STRING=$AZURE_STORAGE_CONNECTION_STRING" \
+                "AZURE_STORAGE_ACCOUNT_NAME=$AZURE_STORAGE_ACCOUNT_NAME" \
+                "AZURE_STORAGE_KEY=$AZURE_STORAGE_KEY" \
+                "AZURE_MASTER_EDI_CONTAINER=$AZURE_MASTER_EDI_CONTAINER" \
+                "AZURE_COSMOS_ENDPOINT=$AZURE_COSMOS_ENDPOINT" \
+                "AZURE_COSMOS_KEY=$AZURE_COSMOS_KEY" \
+                "AZURE_COSMOS_CONNECTION_STRING=$AZURE_COSMOS_CONNECTION_STRING" \
+                "AZURE_COSMOS_DATABASE=$AZURE_COSMOS_DATABASE" \
+                "AZURE_COSMOS_CONTAINER=$AZURE_COSMOS_CONTAINER" \
+                "AZURE_COSMOS_PARTITION_KEY=$AZURE_COSMOS_PARTITION_KEY" \
+                "AZURE_ALIGNRX_REPORTS_CONTAINER=$AZURE_ALIGNRX_REPORTS_CONTAINER" \
+                "PYTHONDONTWRITEBYTECODE=1" \
+                "PYTHONUNBUFFERED=1"
+    fi
     print_status "Web apps updated successfully"
 }
 
@@ -279,8 +329,12 @@ update_web_apps() {
 restart_web_apps() {
     print_status "Restarting web apps..."
     
-    az webapp restart --resource-group "$RESOURCE_GROUP" --name "charlotte-frontend"
-    az webapp restart --resource-group "$RESOURCE_GROUP" --name "charlotte-backend"
+    if [[ "$BACKEND_ONLY" == false ]]; then
+        az webapp restart --resource-group "$RESOURCE_GROUP" --name "charlotte-frontend"
+    fi
+    if [[ "$FRONTEND_ONLY" == false ]]; then
+        az webapp restart --resource-group "$RESOURCE_GROUP" --name "charlotte-backend"
+    fi
     
     print_status "Web apps restarted successfully"
 }
@@ -329,11 +383,15 @@ show_help() {
     echo "    AZURE_AI_PROJECT_ENDPOINT, AZURE_AD_TENANT_ID, AZURE_AD_CLIENT_ID"
     echo "    AZURE_AD_CLIENT_SECRET, AZURE_AGENT_ID, AZURE_OPENAI_KEY"
     echo "    AZURE_AI_RESOURCE_ENDPOINT, AZURE_AD_REDIRECT_URI"
+    echo "    AZURE_MASTER_SEARCH_INDEX"
+    echo "    AZURE_STORAGE_CONTAINER_NAME, EDI_JSON_OUTPUT_CONTAINER"
     echo "    AZURE_STORAGE_CONNECTION_STRING, AZURE_STORAGE_ACCOUNT_NAME, AZURE_STORAGE_KEY"
-    echo "    AZURE_ALIGNRX_REPORTS_CONTAINER"
+    echo "    AZURE_MASTER_EDI_CONTAINER, AZURE_ALIGNRX_REPORTS_CONTAINER"
+    echo "    AZURE_COSMOS_ENDPOINT, AZURE_COSMOS_KEY, AZURE_COSMOS_CONNECTION_STRING"
+    echo "    AZURE_COSMOS_DATABASE, AZURE_COSMOS_CONTAINER, AZURE_COSMOS_PARTITION_KEY"
     echo
     echo "  To load environment variables from .env files:"
-    echo "    source backend/.env && export \$(grep -v '^#' backend/.env | xargs)"
+    echo "    source $BACKEND_DIR/.env && export \$(grep -v '^#' \"$BACKEND_DIR/.env\" | xargs)"
     echo
     echo "Examples:"
     echo "  $0 --load-env                        # Load env vars from .env files and build both images"
@@ -410,7 +468,26 @@ run_specific_function() {
     
     # Basic setup for most functions
     if [[ "$func_name" != "validate_env_vars" && "$func_name" != "load_env_files" ]]; then
-        validate_env_vars
+        case "$func_name" in
+            build_and_push_frontend)
+                validate_env_vars true false
+                ;;
+            build_and_push_backend|ensure_buildx|login_to_acr|get_acr_server|check_docker|check_azure_cli|restart_web_apps|display_deployment_info)
+                validate_env_vars false false
+                ;;
+            update_web_apps)
+                if [[ "$BACKEND_ONLY" == true ]]; then
+                    validate_env_vars false true
+                elif [[ "$FRONTEND_ONLY" == true ]]; then
+                    validate_env_vars true false
+                else
+                    validate_env_vars true true
+                fi
+                ;;
+            *)
+                validate_env_vars true true
+                ;;
+        esac
     fi
     
     if [[ "$func_name" == "update_web_apps" || "$func_name" == "restart_web_apps" ]]; then
@@ -451,7 +528,23 @@ main() {
     
     check_docker
     check_azure_cli
-    validate_env_vars
+    if [[ "$NO_UPDATE" == false ]]; then
+        if [[ "$BACKEND_ONLY" == true ]]; then
+            validate_env_vars false true
+        elif [[ "$FRONTEND_ONLY" == true ]]; then
+            validate_env_vars true false
+        else
+            validate_env_vars true true
+        fi
+    else
+        if [[ "$BACKEND_ONLY" == true ]]; then
+            validate_env_vars false false
+        elif [[ "$FRONTEND_ONLY" == true ]]; then
+            validate_env_vars true false
+        else
+            validate_env_vars true false
+        fi
+    fi
     login_to_acr
     get_acr_server
     ensure_buildx

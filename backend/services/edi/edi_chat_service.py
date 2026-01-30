@@ -58,7 +58,7 @@ class EDIChatService:
         }
     
     def extract_query_parameters(self, question: str) -> Dict:
-        """Extract structured parameters from natural language query using AI"""
+        """Extract query parameters from user's question using AI"""
         try:
             # Prompt for parameter extraction
             system_prompt = formulate_query_prompt
