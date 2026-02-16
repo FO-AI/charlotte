@@ -16,6 +16,7 @@ const API_ENDPOINTS = {
   alignrxAnalyze: `${API_BASE_URL}/api/alignrx/analyze`,
   alignrxExport: `${API_BASE_URL}/api/alignrx/export`,
   ediDashboardData: `${API_BASE_URL}/api/edi/dashboard_data`,
+  uploadBankingFiles: `${API_BASE_URL}/api/banking/upload-files`,
 };
 
 // Create API client that requires auth headers to be passed in
@@ -24,6 +25,41 @@ export class APIClient {
     this.getAuthHeaders = getAuthHeaders;
   }
 
+  async uploadBankingFiles(files) {
+    try {
+      const authHeaders = await this.getAuthHeaders();
+      const formData = new FormData();
+      files.forEach((file) => {
+        formData.append("files", file);
+      });
+
+      const response = await fetch(API_ENDPOINTS.uploadBankingFiles, {
+        method: "POST",
+        headers: {
+          ...authHeaders,
+        },
+        body: formData,
+      });
+
+      if (response.status === 401) {
+        throw new Error('Authentication required');
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `API error: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const contentDisposition = response.headers.get("content-disposition") || "";
+      const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+      const filename = filenameMatch ? filenameMatch[1] : "banking_files.xlsx";
+      return { blob, filename };
+    } catch (error) {
+      console.error("Upload banking files failed:", error);
+      throw error;
+    }
+  }
   async getUserDepartment() {
     try {
       const authHeaders = await this.getAuthHeaders();

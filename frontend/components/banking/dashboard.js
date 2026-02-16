@@ -1,9 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
+import { APIClient } from '@/lib/api-client';
+import { useAuth } from '@/lib/auth/auth-context-msal';
+import BankingUploadModal from '@/components/banking/upload-modal';
 import Logout from '@/components/logout';
 import { 
   MessageSquare, 
@@ -12,39 +24,52 @@ import {
   DollarSign, 
   TrendingUp, 
   Calendar,
-  Database
+  Database,
+  Upload,
+  X
 } from 'lucide-react';
+
+
 
 export default function BankingDashboard() {
   const router = useRouter();
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   const quickActions = [
+    // {
+    //   title: 'Chat',
+    //   description: 'Start a conversation with Charlotte AI',
+    //   icon: MessageSquare,
+    //   onClick: () => router.push('/chat'),
+    //   gradient: 'from-[#4B9CD3] to-[#2B6FA6]',
+    //   iconBg: 'bg-[#4B9CD3]/10'
+    // },
+    // {
+    //   title: 'Data Analysis',
+    //   description: 'Analyze banking data and generate insights',
+    //   icon: BarChart3,
+    //   onClick: () => router.push('/data-analysis'),
+    //   gradient: 'from-[#2B6FA6] to-[#0F3D63]',
+    //   iconBg: 'bg-[#2B6FA6]/10'
+    // },
+    // {
+    //   title: 'Reports Viewer',
+    //   description: 'View banking reports and documents',
+    //   icon: FileText,
+    //   onClick: () => {
+    //     // TODO: Add banking reports viewer route
+    //     console.log('Banking reports viewer - to be implemented');
+    //   },
+    //   gradient: 'from-[#4B9CD3] to-[#1E40AF]',
+    //   iconBg: 'bg-[#4B9CD3]/10'
+    // },
     {
-      title: 'Chat',
-      description: 'Start a conversation with Charlotte AI',
-      icon: MessageSquare,
-      onClick: () => router.push('/chat'),
-      gradient: 'from-[#4B9CD3] to-[#2B6FA6]',
-      iconBg: 'bg-[#4B9CD3]/10'
-    },
-    {
-      title: 'Data Analysis',
-      description: 'Analyze banking data and generate insights',
-      icon: BarChart3,
-      onClick: () => router.push('/data-analysis'),
-      gradient: 'from-[#2B6FA6] to-[#0F3D63]',
+      title: 'Upload Banking Files',
+      description: 'Upload banking files for analysis',
+      icon: Upload,
+      onClick: () => setShowUploadModal(true),
+      gradient: 'from-[#2B6FA6] to-[#4B9CD3]',
       iconBg: 'bg-[#2B6FA6]/10'
-    },
-    {
-      title: 'Reports Viewer',
-      description: 'View banking reports and documents',
-      icon: FileText,
-      onClick: () => {
-        // TODO: Add banking reports viewer route
-        console.log('Banking reports viewer - to be implemented');
-      },
-      gradient: 'from-[#4B9CD3] to-[#1E40AF]',
-      iconBg: 'bg-[#4B9CD3]/10'
     }
   ];
 
@@ -84,14 +109,13 @@ export default function BankingDashboard() {
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#2B6FA6]/5 rounded-full blur-3xl"></div>
       </div>
 
-      {/* Floating Logout Component */}
-      <div className="fixed top-4 right-4 z-50 fade-in-up">
-        <div className="bg-background/90 backdrop-blur-md border-2 border-primary/20 rounded-2xl shadow-2xl p-2">
-          <Logout />
-        </div>
-      </div>
+
       
       <div className="container mx-auto px-4 md:px-6 py-8 md:py-12 max-w-7xl relative z-10">
+        <BankingUploadModal
+          isOpen={showUploadModal}
+          onClose={() => setShowUploadModal(false)}
+        />
         {/* Header Section */}
         <div className="mb-12 fade-in-up">
           <div className="flex items-center gap-4 mb-4">

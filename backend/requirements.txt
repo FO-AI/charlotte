@@ -164,3 +164,4 @@ pandas
 openpyxl
 xlrd
 pydantic-settings
+pdfplumber
