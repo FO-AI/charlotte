@@ -53,8 +53,46 @@ class BankingUploadService:
         """
         Processes a single file and returns the analyzed data.
         """
-        text = self._extract_text_from_pdf_bytes(file_bytes)
+        text = self._extract_text_smart_chunking(file_bytes) 
         return await self._analyze_document_with_llm(filename, text)
+    
+    def _extract_text_smart_chunking(self, file_bytes: bytes) -> str: 
+        """
+        Extracts text intelligently:
+        - If doc is short (< 5 pages), extracts everything.
+        - If doc is long, extracts the First 2 pages (Head) and Last 2 pages (Tail).
+        """
+        text_content = ""
+        try:
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                total_pages = len(pdf.pages)
+                
+                # Case 1: Short Document (Send everything)
+                if total_pages <= 5:
+                    for page in pdf.pages:
+                        extract = page.extract_text()
+                        if extract: text_content += extract + "\n"
+                
+                # Case 2: Long Document (Send Head + Tail)
+                else:
+                    # 1. Extract The Head (Pages 1-2) -> Captures "As of Date" 
+                    for i in range(2):
+                        extract = pdf.pages[i].extract_text()
+                        if extract: text_content += extract + "\n"
+                    
+                    text_content += "\n\n... [MIDDLE TRANSACTIONS REMOVED FOR PROCESSING EFFICIENCY] ...\n\n"
+                    
+                    # 2. Extract The Tail (Last 2 Pages) -> Captures "Net Total" 
+                    # We take last 2 because sometimes the total floats to the second-to-last page.
+                    for i in range(total_pages - 2, total_pages):
+                        extract = pdf.pages[i].extract_text()
+                        if extract: text_content += extract + "\n"
+                        
+        except Exception as e:
+            logger.error(f"Error extracting PDF text: {e}")
+            return ""
+            
+        return text_content
 
     def _extract_text_from_pdf_bytes(self, file_bytes: bytes) -> str:
         """

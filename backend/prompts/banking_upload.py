@@ -24,7 +24,11 @@ For every distinct date found in the report, extract ONLY the consolidated total
 - **Student Wire**: Extract the "Credit Total" for the specific date.
 - **Student**: Extract the "Credit Total" or "Net Total" for the specific date. This total is at the bottom of the report.
 - **BOA**: Extract the "Credit Totals" and "Debit Totals" (often labeled 'ZBA Debit') for each date.
-- **Cert Totals**: Extract the Cash total as one line, and Check total as one line, and Bank Deposit total as one line for the date.
+- **Cert Totals**: Extract all lines for the date. For each line inlcude the Bank Account Number , and the line item type (cash or check).
+       A line item is either cash of checks. Here is how to identify if it is a cash or check:
+       If there are two distinct Bank Deposit Ids, the smaller Deposit ID is a cash line item and the larger Deposit ID is a check line item.
+       If there is only one Bank Deposit Id, then it is a check line item.
+       Include the Bank Deposit total for the date.
 - **Payment Gateway CC**: Extract the "Batch Total" or "Grand Total" for each date.
 - **Payment Gateway ACH**: Extract the "Total" amount for each date.
 - **Paypath**: Extract the "Grand Total" row for each date found in the table.

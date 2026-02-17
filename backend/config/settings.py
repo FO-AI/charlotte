@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 import os
+from typing import Optional
 load_dotenv()
 
 class Settings(BaseSettings):
@@ -24,10 +25,10 @@ class Settings(BaseSettings):
     azure_alignrx_reports_container: str = os.getenv("AZURE_ALIGNRX_REPORTS_CONTAINER")
     azure_master_edi_container: str = os.getenv("AZURE_MASTER_EDI_CONTAINER")
 
-    azure_cosmos_connection_string: str = os.getenv("AZURE_COSMOS_CONNECTION_STRING")
-    azure_cosmos_database: str = os.getenv("AZURE_COSMOS_DATABASE")
-    azure_cosmos_container: str = os.getenv("AZURE_COSMOS_CONTAINER")
-    azure_cosmos_partition_key: str = os.getenv("AZURE_COSMOS_PARTITION_KEY")
+    azure_cosmos_connection_string: Optional[str] = os.getenv("AZURE_COSMOS_CONNECTION_STRING")
+    azure_cosmos_database: Optional[str] = os.getenv("AZURE_COSMOS_DATABASE")
+    azure_cosmos_container: Optional[str] = os.getenv("AZURE_COSMOS_CONTAINER")
+    azure_cosmos_partition_key: Optional[str] = os.getenv("AZURE_COSMOS_PARTITION_KEY")
 
     class Config:
         env_file = ".env"
