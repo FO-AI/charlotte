@@ -52,3 +52,4 @@ backend/services/data_loaders/processed_data/
 
 # Azure
 /azure-rg-template/
+node_modules
