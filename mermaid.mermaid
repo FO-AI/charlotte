@@ -1,0 +1,172 @@
+%%{init: {'themeVariables': {'fontSize':'16px','primaryTextColor':'#1a237e','primaryBorderColor':'#3949ab','lineColor':'#1565c0','secondaryBorderColor':'#1565c0','tertiaryBorderColor':'#1565c0'}, 'flowchart': {'useMaxWidth': false, 'padding': 80, 'nodeSpacing': 80, 'rankSpacing': 100, 'curve': 'linear'}}}%%
+flowchart TB
+    subgraph AI_SYNTHESIS_LAYER ["AI Synthesis Layer<br/>(Reduces Discovery Load)"]
+        direction TB
+        UI["React Interface<br/>(Natural Language Input)"]
+
+        subgraph AI_CORE ["AI Core<br/>(LLM Engine)"]
+            Intent["Intent Formulation<br/>(formulate_query.py)"]
+            RAG["RAG Synthesis<br/>(rag_response.py)"]
+            Memory["Conversation Memory<br/>(Cosmos DB / Local State)"]
+        end
+    end
+
+    subgraph DOMAIN_ANALYSIS_LAYER ["Domain-Specific Analysis Layer<br/>(Reduces Precision Load)"]
+        direction TB
+        subgraph PANDAS_ENGINE ["Analytical Engine<br/>(Pandas-Based)"]
+            direction LR
+            AL["AlignRx Data Loader<br/>(Aggregation & Math)"]
+            EL["EDI Data Loader<br/>(Transactional Logic)"]
+            BL["Banking Service<br/>(Reconciliation)"]
+        end
+
+        subgraph INGESTION_PIPELINE ["Ingestion &<br/>Transformation"]
+            Parser["Pandas Parsers<br/>(Excel/EDI State Machines)"]
+            Normalizer["Data Normalizer<br/>(Deduplication & Type Casting)"]
+        end
+    end
+
+    subgraph INFRASTRUCTURE ["Infrastructure Backbone<br/>(Shared State)"]
+        AISearch[("Azure AI Search<br/>(Contextual Index)")]
+        BlobStorage[("Azure Blob Storage<br/>(Source Documents)")]
+    end
+
+    %% Flow: Ingestion
+    BlobStorage --> Parser
+    Parser --> Normalizer
+    Normalizer -- "Structured JSON" --> AISearch
+
+    %% Flow: Querying
+    UI --> Intent
+    Intent -- "OData Filter / Search Text" --> AISearch
+    AISearch -- "Filtered Context" --> RAG
+
+    %% The Hand-off: Precision meeting Synthesis
+    AISearch -- "Raw Records" --> PANDAS_ENGINE
+    PANDAS_ENGINE -- "Deterministic Aggregates<br/>(Totals/Averages)" --> RAG
+
+    %% Final Output
+    Memory -.-> RAG
+    RAG -- "Synthesized Insight" --> UI
+
+    %% Visual Callouts
+    classDef ai fill:#bbdefb,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
+    classDef pandas fill:#ffe0b2,stroke:#ef6c00,stroke-width:2px,color:#bf360c;
+    classDef infra fill:#e0e0e0,stroke:#616161,stroke-width:2px,color:#212121;
+
+    class AI_CORE,Intent,RAG,UI ai;
+    class PANDAS_ENGINE,Parser,Normalizer,AL,EL,BL pandas;
+    class AISearch,BlobStorage,Memory infra;
+
+
+%%{init: {'themeVariables': {'fontSize':'14px'}, 'flowchart': {'useMaxWidth': false, 'padding': 30}}}%%
+graph LR
+    subgraph NAV ["Authentication & Role Gateway"]
+        Auth["Navigation.js<br/>(Client-side Auth)"]
+        Role["user_department.py<br/>(Role Routing)"]
+        Auth -->|MSAL Token| Role
+    end
+
+    subgraph ACCOUNTING ["Accounting Module (Teal Mode)"]
+        direction TB
+        AccDash["Accounting Dashboard<br/>(components/accounting/dashboard.js)"]
+
+        %% Features
+        Chat["Charlotte AI Chat<br/>(app/chat/page.js)"]
+        EDIViewer["EDI Reports Viewer<br/>(app/edi-viewer/page.js)"]
+        DataAnal["Pandas Data Analysis<br/>(app/data-analysis/page.js)"]
+        AlignRx["Pharmacy Claims Analysis<br/>(app/align-rx-analysis/page.js)"]
+
+        AccDash --- Chat
+        AccDash --- EDIViewer
+        AccDash --- DataAnal
+        AccDash --- AlignRx
+    end
+
+    subgraph BANKING ["Banking Module (Indigo Mode)"]
+        direction TB
+        BankDash["Banking Dashboard<br/>(components/banking/dashboard.js)"]
+        BankUpload["Banking Upload Service<br/>(BankingUploadService.py)"]
+
+        BankDash --- BankUpload
+    end
+
+    subgraph SHARED_UI ["Shared UI Framework (Grey/Slate)"]
+        direction LR
+        AI["ai-overview.jsx"]
+        Tbl["table.jsx"]
+        Tst["toast.jsx"]
+        Card["card.jsx"]
+    end
+
+    %% Routing
+    Role -->|Role: Accounting| ACCOUNTING
+    Role -->|Role: Banking| BANKING
+
+    %% Usage of Shared UI
+    ACCOUNTING -.-> SHARED_UI
+    BANKING -.-> SHARED_UI
+
+    %% Visual Styling
+    style ACCOUNTING fill:#e0f2f1,stroke:#00897b,stroke-width:2px
+    style BANKING fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px
+    style SHARED_UI fill:#f5f5f5,stroke:#757575,stroke-dasharray:
+
+
+  Chart 2: Dashboard Data Orchestration (Stats & Real-time Flow)
+  This diagram maps the "Engine Room," contrasting the deterministic ingestion loop with the live statistical retrieval used to populate
+  user dashboards.
+
+
+
+
+%%{init: {'themeVariables': {'fontSize':'14px'}, 'flowchart': {'rankSpacing': 60}}}%%
+flowchart TD
+    subgraph INGESTION ["Ingestion Loop (Raw Data to Search Index)"]
+        UI_U["UploadModal.js<br/>(File Selection)"]
+        API_U["apiClient.js<br/>(/api/upload-edi-report)"]
+
+        subgraph BACKEND_TRANSFORM ["Backend Transformation"]
+            Svc_U["edi_services.py<br/>(Orchestrator)"]
+            Parser["edi_parser.py<br/>(Pandas State Machine)"]
+        end
+
+        Index["EDISearchService<br/>(Azure AI Search Index)"]
+
+        UI_U -->|Raw EDI/Excel| API_U
+        API_U --> Svc_U
+        Svc_U --> Parser
+        Parser -->|Normalized JSON| Index
+    end
+
+    subgraph ORCHESTRATION ["Dashboard Retrieval (Engine Room)"]
+        Index -- "Live Records" --> Stats_Svc
+        Stats_Svc["edi_search_service.py<br/>(get_statistics)"]
+
+        subgraph ANALYTICAL_ENGINE ["Analytical Precision Layer"]
+            Pandas["AlignRxDataLoader<br/>(Pandas Aggregations)"]
+            Excel["Export Service<br/>(JSON to Excel)"]
+        end
+    end
+
+    subgraph LIVE_UI ["Live Dashboard Update"]
+        Fetch["apiClient.js<br/>(getEdiDashboardData)"]
+        Cards["Stats Cards<br/>(Total Amount / Trans)"]
+    end
+
+    %% Flow connections
+    Stats_Svc -->|Real-time Stats| Fetch
+    Fetch --> Cards
+
+    %% Distinction Callout
+    Index -.->|Precision Filter| Pandas
+    Pandas -->|Detailed Analysis| LIVE_UI
+
+    %% Visual Styling
+    classDef file fill:#fff9c4,stroke:#fbc02d,stroke-width:1px
+    classDef db fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    classDef llm fill:#e1bee7,stroke:#8e24aa,stroke-width:2px
+
+    class UI_U,Parser file
+    class Index db
+    class Stats_Svc,Pandas llm

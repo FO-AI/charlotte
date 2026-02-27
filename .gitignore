@@ -1,5 +1,6 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+
 # dependencies
 /frontend/node_modules
 /.pnp
@@ -53,3 +54,4 @@ backend/services/data_loaders/processed_data/
 # Azure
 /azure-rg-template/
 node_modules
+.DS_Store
