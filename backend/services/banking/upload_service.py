@@ -91,7 +91,7 @@ class BankingUploadService:
         except Exception as e:
             logger.error(f"Error extracting PDF text: {e}")
             return ""
-            
+    
         return text_content
 
     def _extract_text_from_pdf_bytes(self, file_bytes: bytes) -> str:
@@ -108,6 +108,8 @@ class BankingUploadService:
         except Exception as e:
             logger.error(f"Error extracting PDF text: {e}")
             return ""
+        
+       
         return text_content
 
     async def _analyze_document_with_llm(self, filename: str, text: str) -> Dict[str, Any]:
