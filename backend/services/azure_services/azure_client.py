@@ -1,37 +1,42 @@
+import logging
 import os
-from azure.identity import ClientSecretCredential
+from typing import Optional
+
+from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.ai.projects import AIProjectClient
-from openai import AzureOpenAI
+from azure.core.credentials import AzureKeyCredential
+from azure.identity import ClientSecretCredential
 from dotenv import load_dotenv
+from openai import AzureOpenAI
+
+from config.settings import settings
+
 load_dotenv()
 
-import logging
-logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
+
 class AzureClient:
-    """
-    Azure client for Azure AI Projects
-    """
+    """Azure client wrapper for AI Projects, OpenAI, and Document Intelligence."""
+
     def __init__(self):
-        """
-        Initialize the Azure client
-        """
-        self.project_endpoint = os.getenv("AZURE_AI_PROJECT_ENDPOINT")
-        self.tenant_id = os.getenv("AZURE_AD_TENANT_ID")
-        self.client_id = os.getenv("AZURE_AD_CLIENT_ID")
-        self.client_secret = os.getenv("AZURE_AD_CLIENT_SECRET")
-        self.agent_id = os.getenv("AZURE_AGENT_ID")
+        self.project_endpoint = settings.azure_ai_project_endpoint
+        self.di_endpoint = settings.azure_di_endpoint
+        self.di_key = settings.azure_di_key
+        self.di_model_id = settings.azure_di_model_id
+        self.tenant_id = settings.azure_ad_tenant_id
+        self.client_id = settings.azure_ad_client_id
+        self.client_secret = settings.azure_ad_client_secret
+        self.agent_id = settings.azure_agent_id
+
         self.project_client = self.setup_azure_client()
         self.agent = self.get_agent()
         self.llm = self.get_llm()
+        self.document_intelligence_client: Optional[DocumentIntelligenceClient] = None
+        self.document_intelligence_client = self.get_di()
 
     def setup_azure_client(self):
-        """
-        Setup the Azure client
-        """
-        
-        # Check for missing environment variables
+        """Setup Azure AI project client."""
         missing_vars = []
         if not self.project_endpoint:
             missing_vars.append("AZURE_AI_PROJECT_ENDPOINT")
@@ -41,52 +46,72 @@ class AzureClient:
             missing_vars.append("AZURE_AD_CLIENT_ID")
         if not self.client_secret:
             missing_vars.append("AZURE_AD_CLIENT_SECRET")
-        
+
         if missing_vars:
             error_msg = f"Missing required Azure environment variables: {', '.join(missing_vars)}"
-            logger.error(f"ERROR: {error_msg}")
+            logger.error("ERROR: %s", error_msg)
             raise ValueError(error_msg)
+
         try:
             credential = ClientSecretCredential(
                 tenant_id=self.tenant_id,
                 client_id=self.client_id,
-                client_secret=self.client_secret
+                client_secret=self.client_secret,
             )
             self.project_client = AIProjectClient(
                 credential=credential,
-                endpoint=self.project_endpoint
+                endpoint=self.project_endpoint,
             )
-            logger.info(f"Azure client setup successfully")
-
+            logger.info("Azure project client setup successfully")
             return self.project_client
-        except Exception as e:
-            error_msg = f"Failed to create Azure client: {str(e)}"
-            logger.error(f"ERROR: {error_msg}")
-            raise Exception(error_msg)
-    
-    def get_llm(self):
+        except Exception as exc:
+            error_msg = f"Failed to create Azure client: {exc}"
+            logger.error("ERROR: %s", error_msg)
+            raise Exception(error_msg) from exc
 
-        llm = AzureOpenAI(
+    def get_llm(self):
+        return AzureOpenAI(
             api_version="2024-12-01-preview",
-            api_key=os.getenv("AZURE_OPENAI_KEY"),
-            azure_endpoint=os.getenv("AZURE_AI_RESOURCE_ENDPOINT")
+            api_key=settings.azure_openai_key or os.getenv("AZURE_OPENAI_KEY"),
+            azure_endpoint=settings.azure_ai_resource_endpoint or os.getenv("AZURE_AI_RESOURCE_ENDPOINT"),
         )
-        return llm
+
+    def get_di(self) -> Optional[DocumentIntelligenceClient]:
+        """Get (or lazily initialize) the Document Intelligence client."""
+        if self.document_intelligence_client is not None:
+            return self.document_intelligence_client
+
+        if not self.di_endpoint or not self.di_key:
+            logger.warning(
+                "Document Intelligence client is not configured (missing AZURE_DI_ENDPOINT or AZURE_DI_KEY)."
+            )
+            return None
+
+        try:
+            self.document_intelligence_client = DocumentIntelligenceClient(
+                endpoint=self.di_endpoint,
+                credential=AzureKeyCredential(self.di_key),
+            )
+            logger.info("Document Intelligence client setup successfully")
+        except Exception as exc:
+            logger.error("Failed to initialize Document Intelligence client: %s", exc)
+            self.document_intelligence_client = None
+
+        return self.document_intelligence_client
 
     def get_agent(self):
-        """
-        Get the agent from the project client
-        """
+        """Get the configured Azure AI agent."""
         agent_id = self.agent_id
         if not agent_id:
             error_msg = "AZURE_AGENT_ID is not set"
-            logger.error(f"ERROR: {error_msg}")
+            logger.error("ERROR: %s", error_msg)
             raise ValueError(error_msg)
+
         try:
             agent = self.project_client.agents.get_agent(agent_id)
-            logger.info(f"Agent {agent_id} retrieved successfully")
+            logger.info("Agent %s retrieved successfully", agent_id)
             return agent
-        except Exception as e:
-            error_msg = f"Failed to get agent: {str(e)}"
-            logger.error(f"ERROR: {error_msg}")
-            raise Exception(error_msg)
+        except Exception as exc:
+            error_msg = f"Failed to get agent: {exc}"
+            logger.error("ERROR: %s", error_msg)
+            raise Exception(error_msg) from exc

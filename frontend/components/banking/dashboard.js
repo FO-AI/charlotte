@@ -16,16 +16,18 @@ import {
 import { APIClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth/auth-context-msal';
 import BankingUploadModal from '@/components/banking/upload-modal';
+import OutsideScholarshipsUploadModal from '@/components/banking/outside-scholarships-upload-modal';
 import Logout from '@/components/logout';
-import { 
-  MessageSquare, 
-  BarChart3, 
-  FileText, 
-  DollarSign, 
-  TrendingUp, 
+import {
+  MessageSquare,
+  BarChart3,
+  FileText,
+  DollarSign,
+  TrendingUp,
   Calendar,
   Database,
   Upload,
+  FileCheck,
   X
 } from 'lucide-react';
 
@@ -34,6 +36,7 @@ import {
 export default function BankingDashboard() {
   const router = useRouter();
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showOutsideScholarshipsModal, setShowOutsideScholarshipsModal] = useState(false);
 
   const quickActions = [
     // {
@@ -70,6 +73,14 @@ export default function BankingDashboard() {
       onClick: () => setShowUploadModal(true),
       gradient: 'from-[#2B6FA6] to-[#4B9CD3]',
       iconBg: 'bg-[#2B6FA6]/10'
+    },
+    {
+      title: 'Outside Scholarships',
+      description: 'Upload scanned front/back check PDF',
+      icon: FileCheck,
+      onClick: () => setShowOutsideScholarshipsModal(true),
+      gradient: 'from-[#4B9CD3] to-[#2B6FA6]',
+      iconBg: 'bg-[#4B9CD3]/10'
     }
   ];
 
@@ -115,6 +126,10 @@ export default function BankingDashboard() {
         <BankingUploadModal
           isOpen={showUploadModal}
           onClose={() => setShowUploadModal(false)}
+        />
+        <OutsideScholarshipsUploadModal
+          isOpen={showOutsideScholarshipsModal}
+          onClose={() => setShowOutsideScholarshipsModal(false)}
         />
         {/* Header Section */}
         <div className="mb-12 fade-in-up">

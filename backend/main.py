@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import Settings, setup_logging
 from api.router import router  
 import uvicorn
-setup_logging(level='WARNING')
+setup_logging(level='INFO')
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

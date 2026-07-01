@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     azure_cosmos_container: Optional[str] = os.getenv("AZURE_COSMOS_CONTAINER")
     azure_cosmos_partition_key: Optional[str] = os.getenv("AZURE_COSMOS_PARTITION_KEY")
 
+    azure_di_endpoint: Optional[str] = os.getenv("AZURE_DI_ENDPOINT")
+    azure_di_key: Optional[str] = os.getenv("AZURE_DI_KEY")
+    azure_di_model_id: str = os.getenv("AZURE_DI_MODEL_ID", "prebuilt-check.us")
+
     class Config:
         env_file = ".env"
         extra = "ignore"

@@ -17,6 +17,7 @@ const API_ENDPOINTS = {
   alignrxExport: `${API_BASE_URL}/api/alignrx/export`,
   ediDashboardData: `${API_BASE_URL}/api/edi/dashboard_data`,
   uploadBankingFiles: `${API_BASE_URL}/api/banking/upload-files`,
+  outsideScholarships: `${API_BASE_URL}/api/banking/outside-scholarships`,
 };
 
 // Create API client that requires auth headers to be passed in
@@ -60,6 +61,60 @@ export class APIClient {
       throw error;
     }
   }
+  async uploadOutsideScholarshipsPdf(file, options = {}) {
+    try {
+      const { aidYear, aidTerm } = options;
+      const authHeaders = await this.getAuthHeaders();
+      const formData = new FormData();
+      formData.append("files", file);
+      if (aidYear) {
+        formData.append("aid_year", String(aidYear));
+      }
+      if (aidTerm) {
+        formData.append("aid_term", String(aidTerm));
+      }
+
+      const response = await fetch(API_ENDPOINTS.outsideScholarships, {
+        method: "POST",
+        headers: {
+          ...authHeaders,
+        },
+        body: formData,
+      });
+
+      if (response.status === 401) {
+        throw new Error('Authentication required');
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `API error: ${response.status}`);
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        return await response.json();
+      }
+
+      if (
+        contentType.includes("spreadsheet") ||
+        contentType.includes("excel") ||
+        contentType.includes("octet-stream")
+      ) {
+        const blob = await response.blob();
+        const contentDisposition = response.headers.get("content-disposition") || "";
+        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+        const filename = filenameMatch ? filenameMatch[1] : "outside_scholarships.xlsx";
+        return { blob, filename };
+      }
+
+      return await response.json().catch(() => ({}));
+    } catch (error) {
+      console.error("Upload outside scholarships PDF failed:", error);
+      throw error;
+    }
+  }
+
   async getUserDepartment() {
     try {
       const authHeaders = await this.getAuthHeaders();

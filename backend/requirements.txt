@@ -165,3 +165,6 @@ openpyxl
 xlrd
 pydantic-settings
 pdfplumber
+langgraph
+azure-ai-documentintelligence
+PyMuPDF

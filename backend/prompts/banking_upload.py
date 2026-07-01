@@ -23,7 +23,10 @@ For every distinct date found in the report, extract ONLY the consolidated total
 - **Prev Day Comp**: Extract "INDIVIDUAL ZBA DEBIT" as separate entries for the specific date.
 - **Student Wire**: Extract the "Credit Total" for the specific date.
 - **Student**: Extract the "Credit Total" or "Net Total" for the specific date. This total is at the bottom of the report.
-- **BOA**: Extract the "Credit Totals" and "Debit Totals" (often labeled 'ZBA Debit') for each date.
+- **BOA**: Extract BOA credit and debit totals for each date. Prefer specific labels when present:
+       - Credit: "ACH ACH Settlement Credit (166)"
+       - Debit: "ZBA Debit (575)"
+       If those labels are not present, use the report's "Credit Totals" and "Debit Totals" equivalents.
 - **Cert Totals**: Extract EVERY row from the "Deposit Totals by Bank" table as a separate line item. For each row, include:
        - The Bank Account # from that row
        - The Deposit Amount from that row
@@ -35,7 +38,7 @@ For every distinct date found in the report, extract ONLY the consolidated total
        Also include a final line item for "Bank Deposit Total" with the total amount from the report.
 - **Payment Gateway CC**: Extract the "Batch Total" or "Grand Total" for each date.
 - **Payment Gateway ACH**: Extract the "Total" amount for each date.
-- **Paypath**: Extract the "Grand Total" row for each date found in the table.
+- **Paypath**: Extract the "Total" for each date found in the table. Exctract the "Grand total" for the entire report.
 
 ### 3. Output JSON Format
 Return a single JSON object. Ensure `amount` is a float (no currency symbols).
