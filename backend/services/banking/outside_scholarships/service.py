@@ -1,5 +1,4 @@
 import asyncio
-import json
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -32,53 +31,57 @@ class OutsideScholarshipService:
             raise HTTPException(status_code=400, detail="Upload exactly one PDF file.")
 
         upload = files[0]
-        filename = upload.filename or "uploaded.pdf"
-        content_type = (upload.content_type or "").lower()
-        is_pdf = content_type == "application/pdf" or filename.lower().endswith(".pdf")
-        if not is_pdf:
-            raise HTTPException(status_code=400, detail="Only PDF files are supported.")
-
-        pdf_bytes = await upload.read()
-        if not pdf_bytes:
-            raise HTTPException(status_code=400, detail="Uploaded PDF is empty.")
-
-        self._validate_even_page_count(pdf_bytes)
-
-        di_client = self.azure_client.get_di()
-        if di_client is None:
-            logger.error("outside_scholarships.service: Document Intelligence client not configured")
-            raise HTTPException(
-                status_code=500,
-                detail="Document Intelligence client is not configured.",
-            )
-
-        initial_state = {
-            "pdf_folder": None,
-            "pdf_files_bytes": [pdf_bytes],
-            "check_pairs": [],
-            "check_results": [],
-            "final_payload": {},
-        }
-        config = {
-            "configurable": {
-                "llm": self.azure_client.llm,
-                "document_intelligence_client": di_client,
-                "document_intelligence_model_id": self.azure_client.di_model_id,
-            }
-        }
-
-        logger.info("outside_scholarships.service: starting hybrid extraction for %s", filename)
         try:
-            result = await asyncio.to_thread(self._graph.invoke, initial_state, config)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:
-            logger.exception("outside_scholarships.service: hybrid extraction failed")
-            raise HTTPException(status_code=500, detail="Failed to process outside scholarship PDF.") from exc
+            filename = upload.filename or "uploaded.pdf"
+            content_type = (upload.content_type or "").lower()
+            is_pdf = content_type == "application/pdf" or filename.lower().endswith(".pdf")
+            if not is_pdf:
+                raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
-        payload = result.get("final_payload", {"checks": []})
-        self._log_extracted_checks(payload)
-        return self._build_excel_response(payload, aid_year=aid_year, aid_term=aid_term)
+            pdf_bytes = await upload.read()
+            if not pdf_bytes:
+                raise HTTPException(status_code=400, detail="Uploaded PDF is empty.")
+
+            self._validate_even_page_count(pdf_bytes)
+
+            di_client = self.azure_client.get_di()
+            if di_client is None:
+                logger.error("outside_scholarships.service: Document Intelligence client not configured")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Document Intelligence client is not configured.",
+                )
+
+            initial_state = {
+                "pdf_folder": None,
+                "pdf_files_bytes": [pdf_bytes],
+                "check_pairs": [],
+                "check_results": [],
+                "final_payload": {},
+            }
+            config = {
+                "configurable": {
+                    "llm": self.azure_client.llm,
+                    "document_intelligence_client": di_client,
+                    "document_intelligence_model_id": self.azure_client.di_model_id,
+                }
+            }
+
+            logger.info("outside_scholarships.service: starting hybrid extraction for %s", filename)
+            try:
+                result = await asyncio.to_thread(self._graph.invoke, initial_state, config)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except Exception as exc:
+                logger.exception("outside_scholarships.service: hybrid extraction failed")
+                raise HTTPException(status_code=500, detail="Failed to process outside scholarship PDF.") from exc
+
+            payload = result.get("final_payload", {"checks": []})
+            self._log_extracted_checks(payload)
+            return self._build_excel_response(payload, aid_year=aid_year, aid_term=aid_term)
+        finally:
+            # Explicitly close uploaded file handle to avoid residual temp file handles.
+            await upload.close()
 
     async def process_folder(self, folder_path: str) -> Dict[str, Any]:
         """Process all PDF checks found in a local folder."""
@@ -150,20 +153,28 @@ class OutsideScholarshipService:
         checks = payload.get("checks") if isinstance(payload, dict) else None
         if not isinstance(checks, list):
             logger.info("outside_scholarships.service: extracted payload is not in expected format")
-            logger.info("outside_scholarships.service: payload=%s", json.dumps(payload, ensure_ascii=False))
             return
 
         logger.info("outside_scholarships.service: extracted checks=%s", len(checks))
-        required_fields = ("pid_list", "amount", "check_number", "name", "provider", "scholarship_name")
-
         for idx, check in enumerate(checks, start=1):
             if not isinstance(check, dict):
-                logger.info("outside_scholarships.service: check_%s=%s", idx, json.dumps(check, ensure_ascii=False))
+                logger.info("outside_scholarships.service: check_%s malformed record", idx)
                 continue
 
-            summary = {field: check.get(field) for field in required_fields}
+            pid_count = len(check.get("pid_list", [])) if isinstance(check.get("pid_list"), list) else 0
+            has_amount = check.get("amount") is not None
+            has_check_number = check.get("check_number") is not None
+            has_name = check.get("name") is not None
+            has_provider = check.get("provider") is not None
+            has_scholarship_name = check.get("scholarship_name") is not None
             logger.info(
-                "outside_scholarships.service: check_%s_extracted=%s",
+                "outside_scholarships.service: check_%s_extracted pid_count=%s "
+                "has_amount=%s has_check_number=%s has_name=%s has_provider=%s has_scholarship_name=%s",
                 idx,
-                json.dumps(summary, ensure_ascii=False),
+                pid_count,
+                has_amount,
+                has_check_number,
+                has_name,
+                has_provider,
+                has_scholarship_name,
             )

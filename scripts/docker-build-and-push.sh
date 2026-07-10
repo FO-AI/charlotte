@@ -42,6 +42,8 @@ AZURE_COSMOS_KEY="${AZURE_COSMOS_KEY:-}"
 AZURE_COSMOS_DATABASE="${AZURE_COSMOS_DATABASE:-}"
 AZURE_COSMOS_CONTAINER="${AZURE_COSMOS_CONTAINER:-}"
 AZURE_ALIGNRX_REPORTS_CONTAINER="${AZURE_ALIGNRX_REPORTS_CONTAINER:-}"
+AZURE_DI_ENDPOINT="${AZURE_DI_ENDPOINT:-}"
+AZURE_DI_KEY="${AZURE_DI_KEY:-}"
 
 
 # Colors for output
@@ -168,6 +170,8 @@ validate_env_vars() {
         [[ -z "$AZURE_COSMOS_CONTAINER" ]] && missing_vars+=("AZURE_COSMOS_CONTAINER")
         [[ -z "$AZURE_COSMOS_PARTITION_KEY" ]] && missing_vars+=("AZURE_COSMOS_PARTITION_KEY")
         [[ -z "$AZURE_ALIGNRX_REPORTS_CONTAINER" ]] && missing_vars+=("AZURE_ALIGNRX_REPORTS_CONTAINER")
+        [[ -z "$AZURE_DI_ENDPOINT" ]] && missing_vars+=("AZURE_DI_ENDPOINT")
+        [[ -z "$AZURE_DI_KEY" ]] && missing_vars+=("AZURE_DI_KEY")
         if [[ ${#missing_vars[@]} -gt 0 ]]; then
             print_error "Missing required environment variables:"
             for var in "${missing_vars[@]}"; do
@@ -319,6 +323,8 @@ update_web_apps() {
                 "AZURE_COSMOS_CONTAINER=$AZURE_COSMOS_CONTAINER" \
                 "AZURE_COSMOS_PARTITION_KEY=$AZURE_COSMOS_PARTITION_KEY" \
                 "AZURE_ALIGNRX_REPORTS_CONTAINER=$AZURE_ALIGNRX_REPORTS_CONTAINER" \
+                "AZURE_DI_ENDPOINT=$AZURE_DI_ENDPOINT" \
+                "AZURE_DI_KEY=$AZURE_DI_KEY" \
                 "PYTHONDONTWRITEBYTECODE=1" \
                 "PYTHONUNBUFFERED=1"
     fi
@@ -389,6 +395,7 @@ show_help() {
     echo "    AZURE_MASTER_EDI_CONTAINER, AZURE_ALIGNRX_REPORTS_CONTAINER"
     echo "    AZURE_COSMOS_ENDPOINT, AZURE_COSMOS_KEY, AZURE_COSMOS_CONNECTION_STRING"
     echo "    AZURE_COSMOS_DATABASE, AZURE_COSMOS_CONTAINER, AZURE_COSMOS_PARTITION_KEY"
+    echo "    AZURE_DI_ENDPOINT, AZURE_DI_KEY"
     echo
     echo "  To load environment variables from .env files:"
     echo "    source $BACKEND_DIR/.env && export \$(grep -v '^#' \"$BACKEND_DIR/.env\" | xargs)"

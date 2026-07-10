@@ -129,7 +129,6 @@ class BankingUploadService:
                     {"role": "system", "content": BANKING_UPLOAD_PROMPT},
                     {"role": "user", "content": f"Filename: {filename}\n\nDocument Text:\n{text[:15000]}"} # Truncate if too large, usually fits 128k context
                 ],
-                temperature=0.0, # Deterministic output
                 response_format={"type": "json_object"}
             )
             

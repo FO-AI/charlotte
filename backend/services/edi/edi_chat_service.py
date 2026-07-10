@@ -71,8 +71,7 @@ class EDIChatService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.1,
-                max_tokens=200
+                max_completion_tokens=200
 
             )
             
@@ -288,8 +287,7 @@ class EDIChatService:
                     )},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.1,
-                max_tokens=800
+                max_completion_tokens=800
             )
             
             ai_response = response.choices[0].message.content.strip()
