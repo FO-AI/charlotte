@@ -140,7 +140,7 @@ export default function ChatLayout() {
                     <span className="bg-gradient-to-r from-[#4B9CD3] to-[#2B6FA6] bg-clip-text text-transparent">today</span>?
                   </h1>
                   <p className="text-muted-foreground text-lg md:text-xl max-w-2xl mx-auto">
-                    I'm <span className="font-semibold text-[#4B9CD3]">Charlotte</span>, your UNC resources assistant. Ask me anything!
+                    I&apos;m <span className="font-semibold text-[#4B9CD3]">Charlotte</span>, your UNC resources assistant. Ask me anything!
                   </p>
                 </div>
               </div>

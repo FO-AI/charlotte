@@ -1,0 +1,99 @@
+# cd.yml triggers on `workflow_run` of this workflow by name; keep it `CI`.
+# Follows the FO-AI repository script contract; see docs/CI-CD.md.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Every check is `bash scripts/ci.sh <name>`. The script sets its own test-only
+  # environment, so nothing here has to. Reports as `checks / backend`, `checks / frontend`.
+  checks:
+    uses: FO-AI/automation/.github/workflows/reusable-ci.yml@4879ef32bba958a65d44a2e7c539e68ac4e5c564 # v2 interface
+    with:
+      checks: >-
+        [{"name":"backend","directory":".","python-version":"3.11",
+          "install":"python -m pip install -r backend/requirements.txt",
+          "run":"bash scripts/ci.sh backend"},
+         {"name":"frontend","directory":".","node-version":"20",
+          "install":"npm --prefix frontend ci",
+          "run":"bash scripts/ci.sh frontend"}]
+      # PR-time "does it still build" check. Never pushes; `publish` does that on main,
+      # with the real NEXT_PUBLIC_* values. Placeholders are fine here.
+      containers: >-
+        [{"name":"backend","context":"backend","file":"backend/Dockerfile"},
+         {"name":"frontend","context":"frontend","file":"frontend/Dockerfile",
+          "build-args":"NEXT_PUBLIC_API_BASE_URL=http://localhost:8000\nNEXT_PUBLIC_AZURE_AD_CLIENT_ID=00000000-0000-0000-0000-000000000000\nNEXT_PUBLIC_AZURE_AD_TENANT_ID=00000000-0000-0000-0000-000000000000"}]
+
+  # The single required status check.
+  verify:
+    if: always()
+    needs: [checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Summarize required checks
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+        run: |
+          {
+            echo "### CI verification"
+            echo ""
+            echo "| job | result |"
+            echo "|---|---|"
+            echo "| checks | $CHECKS_RESULT |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$CHECKS_RESULT" != "success" ]]; then
+            echo "::error::One or more required CI jobs did not succeed"
+            exit 1
+          fi
+
+  # Push to main only, and the only job in this workflow with cloud access.
+  # TEMPORARY: skipped until the ACR_NAME repository variable exists. Set ACR_NAME
+  # last, once the Azure identity is in place and scripts/publish.sh is implemented;
+  # then delete the `vars.ACR_NAME != ''` clause. See docs/CI-CD.md.
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.ACR_NAME != ''
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # No environment is declared, so the OIDC subject is the main-ref form:
+      #   repo:omshewale30/charlotte:ref:refs/heads/main
+      # and only repo-level variables are readable here.
+      - name: Sign in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # Assumes publish.sh uses `az acr build` (as in FO-AI/nimbus), so no ACR login or
+      # local Docker is needed. If you switch to `docker buildx --push`, add an
+      # `az acr login --name "$ACR_NAME"` step first.
+      - name: Build and publish images
+        env:
+          ACR_NAME: ${{ vars.ACR_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
+          # Next.js inlines these at build time. None is a secret; all are repository
+          # variables because this job cannot read the dev environment.
+          NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+          NEXT_PUBLIC_AZURE_AD_CLIENT_ID: ${{ vars.NEXT_PUBLIC_AZURE_AD_CLIENT_ID }}
+          NEXT_PUBLIC_AZURE_AD_TENANT_ID: ${{ vars.NEXT_PUBLIC_AZURE_AD_TENANT_ID }}
+        run: bash scripts/publish.sh
