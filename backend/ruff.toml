@@ -1,0 +1,21 @@
+# Narrow first-pass lint for CI. Expand rules in later PRs; do not rewrite the tree here.
+target-version = "py311"
+line-length = 120
+exclude = [
+    "depracated",
+    "scripts",
+    "myenv",
+    ".venv",
+    "venv",
+]
+
+[lint]
+select = ["E", "F"]
+ignore = [
+    "E501",  # line length — leave formatting for a dedicated pass
+    "E402",  # module-level import not at top (dotenv / logging before imports)
+    "E701",  # one-line if: — style only
+    "E722",  # bare except — existing loaders/parsers
+    "F821",  # undefined names in dead __main__ stubs (loaders/parsers)
+    "F841",  # unused locals — expand in a follow-up
+]

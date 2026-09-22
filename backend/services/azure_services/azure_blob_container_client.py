@@ -6,8 +6,6 @@ This module provides a client for interacting with Azure Blob Storage containers
 from azure.storage.blob import BlobServiceClient  # pyright: ignore[reportMissingImports]
 from config.logging import get_logger
 from config.settings import Settings
-import os
-from dotenv import load_dotenv  # pyright: ignore[reportMissingImports]
 
 logger = get_logger(__name__)
 settings = Settings()

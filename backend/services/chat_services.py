@@ -1,5 +1,5 @@
 from config import get_logger
-from schemas import QueryRequest, EDIQuery, EDIResponse, TransactionResult
+from schemas import QueryRequest, EDIQuery, EDIResponse
 from typing import Dict
 from datetime import datetime
 from .edi import EDIConversationMemory, EDIChatService

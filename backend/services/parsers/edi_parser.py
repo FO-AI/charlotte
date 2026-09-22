@@ -12,7 +12,6 @@ from ..azure_services import EDISearchService
 from config import get_logger
 import uuid
 
-from config import get_logger
 logger = get_logger(__name__)
 
 

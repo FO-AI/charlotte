@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from config import Settings, setup_logging
+from config import setup_logging
 from api.router import router  
 import uvicorn
 setup_logging(level='INFO')

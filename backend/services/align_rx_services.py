@@ -150,7 +150,7 @@ async def upload_alignrx_report_service(blob_client: BlobStorageClient, user: Di
         if is_duplicate_in_index:
             raise HTTPException(
                 status_code=409,
-                detail=f"Report already exists in search index. The file data matches an existing report with the same date, destination, and payment amount."
+                detail="Report already exists in search index. The file data matches an existing report with the same date, destination, and payment amount."
             )
 
         # Use original filename so Azure duplicate detection can work

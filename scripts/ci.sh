@@ -34,22 +34,14 @@ backend() (
   done
   export AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=ci;AccountKey=Y2k=;EndpointSuffix=ci.invalid"
   cd backend
-  # TODO(intern): replace this smoke test with `ruff check .` and `pytest` once
-  # backend/requirements-dev.txt exists (and add it to the CI install string).
-  python - <<'PY'
-import signal
-
-# An import-time network call should fail the check, not hang the runner.
-signal.alarm(120)
-
-from fastapi.testclient import TestClient
-
-import main
-
-response = TestClient(main.app).get("/api/health")
-assert response.status_code == 200, response.text
-print("backend smoke test passed:", response.json())
-PY
+  # CI provides `python` with the install from ci.yml. On laptops, fall back to python3
+  # when the shell's `python` is a different environment without ruff/pytest.
+  py=python
+  if ! python -c 'import ruff, pytest' >/dev/null 2>&1; then
+    py=python3
+  fi
+  "$py" -m ruff check .
+  "$py" -m pytest
 )
 
 case "${1:-}" in

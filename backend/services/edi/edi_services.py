@@ -120,7 +120,7 @@ async def upload_service(file: UploadFile, user: Dict, blob_client: BlobStorageC
         # Index transactions in search index
         # Skip CHS indexing if trace numbers are duplicates
         if chs_duplicate:
-            logger.warning(f"Skipping CHS transaction indexing due to duplicate trace numbers in CHS search index")
+            logger.warning("Skipping CHS transaction indexing due to duplicate trace numbers in CHS search index")
             chs_index_success = False  # Explicitly set to False since we're skipping
         elif chs_transactions:
             chs_index_success = parser.index_transactions(chs_transactions, blob_name, "edi-transactions")
@@ -182,7 +182,7 @@ async def get_dashboard_data_service(blob_client: BlobStorageClient, master_sear
         blob_list_iterator = blob_client.list_blobs(include_metadata=True)
         latest_three_files = heapq.nlargest(3, blob_list_iterator, key=lambda x: x.last_modified)
         if not latest_three_files:
-            logger.warning(f"No files found in master-edi-reports")
+            logger.warning("No files found in master-edi-reports")
             return {
                 "edi_dashboard_data": None,
                 "total_files": 0

@@ -22,7 +22,7 @@ jobs:
     with:
       checks: >-
         [{"name":"backend","directory":".","python-version":"3.11",
-          "install":"python -m pip install -r backend/requirements.txt",
+          "install":"python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt",
           "run":"bash scripts/ci.sh backend"},
          {"name":"frontend","directory":".","node-version":"20",
           "install":"npm --prefix frontend ci",

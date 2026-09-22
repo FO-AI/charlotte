@@ -3,12 +3,9 @@ Azure AI Search integration for EDI transactions
 This script sets up the search index and uploads your processed data
 """
 
-import os
 from typing import List, Dict
 from dotenv import load_dotenv
 from azure.search.documents import SearchClient
-from azure.search.documents.indexes import SearchIndexClient
-from azure.core.credentials import AzureKeyCredential
 import logging
 
 logging.basicConfig(level=logging.WARNING)

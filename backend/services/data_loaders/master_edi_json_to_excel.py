@@ -1,13 +1,11 @@
 """Utilities to load Master EDI transaction records from Azure AI Search, convert to DataFrame, analyze, and export to Excel."""
 
-import os
 import json
 from datetime import datetime, date
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict
 from azure.search.documents import SearchClient
 import pandas as pd
-import openpyxl  
 from ..azure_services import EDISearchService
 from config import get_logger
 logger = get_logger(__name__)

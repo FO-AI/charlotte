@@ -1,12 +1,10 @@
 """Utilities to load AlignRx report records from Azure AI Search, convert to DataFrame, analyze, and export to Excel."""
 
-import os
 from datetime import datetime, date
 from pathlib import Path
 from typing import List, Dict
 
 import pandas as pd
-import openpyxl  
 from ..azure_services import AlignRxSearchService
 from config import get_logger
 from azure.search.documents import SearchClient
