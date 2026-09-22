@@ -479,7 +479,7 @@ export default function EDIReportsViewer() {
                 {/* Fallback options */}
                 <div className="mt-4 text-center">
                   <p className="text-sm text-gray-600 mb-2">
-                    If the PDF doesn't display above, you can:
+                    If the PDF doesn&apos;t display above, you can:
                   </p>
                   <div className="flex gap-2 justify-center">
                     <Button

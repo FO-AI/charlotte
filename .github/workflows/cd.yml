@@ -1,0 +1,40 @@
+# Follows the FO-AI repository script contract; see docs/CI-CD.md.
+name: CD
+
+on:
+  # TEMPORARY: manual only until scripts/cd.sh has deployed successfully once by hand
+  # (Actions → CD → Run workflow). Then uncomment workflow_run so every green main CI
+  # deploys automatically, matching FO-AI/nimbus and FO-AI/benny.
+  # workflow_run:
+  #   workflows: [CI]
+  #   types: [completed]
+  #   branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Promotes the commit CI just published. scripts/cd.sh resolves the digests itself
+  # from IMAGE_TAG; the wrapper owns checkout, the dev environment, concurrency, the
+  # stale-main check, and Azure login.
+  deploy:
+    # workflow_run fires for every CI completion, including on branches and reruns of
+    # other events. Only a successful CI on a push to main may deploy automatically.
+    # A dispatch redeploys current main (allow-manual); it cannot deploy older commits.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    permissions:
+      contents: read
+      id-token: write
+    uses: FO-AI/automation/.github/workflows/reusable-azure-cd.yml@4879ef32bba958a65d44a2e7c539e68ac4e5c564 # v2 interface
+    with:
+      environment: dev
+      allow-manual: true
+      deploy-command: bash scripts/cd.sh
+    secrets: inherit
