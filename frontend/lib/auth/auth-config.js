@@ -1,28 +1,39 @@
-import { PublicClientApplication } from "@azure/msal-browser";
+import { PublicClientApplication, LogLevel } from "@azure/msal-browser";
 
+const getRedirectUri = () => {
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}/auth/callback`;
+  }
+  return process.env.NODE_ENV === "production"
+    ? "https://charlotte-frontend.azurewebsites.net/auth/callback"
+    : "http://localhost:3000/auth/callback";
+};
 
-// MSAL configuration
+// MSAL configuration — redirect flow avoids COOP/popup blockers (Opera, Chrome, etc.)
 const msalConfig = {
   auth: {
     clientId: process.env.NEXT_PUBLIC_AZURE_AD_CLIENT_ID,
     authority: `https://login.microsoftonline.com/${process.env.NEXT_PUBLIC_AZURE_AD_TENANT_ID}`,
-    redirectUri: typeof window !== 'undefined' ? window.location.origin + "/auth/callback" :
-      process.env.NODE_ENV === 'production'
-        ? "https://charlotte-frontend.azurewebsites.net/auth/callback"
-        : "http://localhost:3000/auth/callback",
+    redirectUri: getRedirectUri(),
+    postLogoutRedirectUri:
+      typeof window !== "undefined" ? window.location.origin : "/",
+    navigateToLoginRequestUrl: false,
   },
   cache: {
-    cacheLocation: "sessionStorage", // This configures where your cache will be stored
-    storeAuthStateInCookie: false, // Set this to "true" if you are having issues on IE11 or Edge
+    cacheLocation: "sessionStorage",
+    storeAuthStateInCookie: false,
+  },
+  system: {
+    loggerOptions: {
+      logLevel: LogLevel.Warning,
+    },
   },
 };
 
-// Add scopes here for ID token to be used at Microsoft identity platform endpoints.
 export const loginRequest = {
   scopes: ["User.Read"],
 };
 
-// Create the main myMSALObj instance
 export const msalInstance = new PublicClientApplication(msalConfig);
 
 export default msalConfig;

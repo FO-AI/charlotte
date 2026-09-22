@@ -5,16 +5,35 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/auth-context-msal';
 
 export default function AuthCallback() {
-  const [localError, setLocalError] = useState(null);
+  const [timedOut, setTimedOut] = useState(false);
   const router = useRouter();
-  const {isAuthenticated} = useAuth();
-  useEffect(() => {
-    if (isAuthenticated()) {
-      router.push('/');
-    }
-  }, [isAuthenticated, router]);
+  const { isAuthenticated, loading, department, isAccounting, isBanking, isAdmin, error } = useAuth();
 
-  if (localError) {
+  useEffect(() => {
+    if (loading) return;
+
+    if (!isAuthenticated()) {
+      const timer = setTimeout(() => setTimedOut(true), 8000);
+      return () => clearTimeout(timer);
+    }
+
+    // Wait briefly for department so we can land on the right dashboard
+    if (isAccounting) {
+      router.replace('/dashboard/accounting');
+    } else if (isBanking) {
+      router.replace('/dashboard/banking');
+    } else if (isAdmin) {
+      router.replace('/admin-landing');
+    } else if (department === null) {
+      // Still fetching department — stay on spinner
+      return;
+    } else {
+      // Authenticated but no mapped department
+      router.replace('/access-restricted');
+    }
+  }, [isAuthenticated, loading, department, isAccounting, isBanking, isAdmin, router]);
+
+  if (error || timedOut) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
@@ -24,7 +43,9 @@ export default function AuthCallback() {
             </svg>
           </div>
           <h1 className="text-2xl font-bold text-destructive">Authentication Failed</h1>
-          <p className="text-muted-foreground max-w-md">{localError}</p>
+          <p className="text-muted-foreground max-w-md">
+            {error || 'Sign-in did not complete. Popups are not required — try again, or allow redirects to login.microsoftonline.com.'}
+          </p>
           <button
             onClick={() => window.location.href = '/'}
             className="bg-primary text-primary-foreground px-6 py-3 rounded-lg hover:bg-primary/90 transition-colors"
