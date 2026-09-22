@@ -1,11 +1,12 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useMsal } from "@azure/msal-react";
+import { useMsal, useIsAuthenticated } from "@azure/msal-react";
+import { InteractionRequiredAuthError, InteractionStatus } from "@azure/msal-browser";
 import { loginRequest } from './auth-config';
 import { sessionUtils } from '../../components/session-timer';
 import { rbaHelper } from './rba-helper';
+
 const AuthContext = createContext({});
 
 export const useAuth = () => {
@@ -20,41 +21,38 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const { instance, accounts } = useMsal();
-  const router = useRouter();
+  const { instance, accounts, inProgress } = useMsal();
+  const msalAuthenticated = useIsAuthenticated();
   const [department, setDepartment] = useState(null);
 
   const getAccessToken = async () => {
+    const account = accounts[0];
+    if (!account) {
+      throw new Error('No account found');
+    }
+
     try {
-      const account = accounts[0];
-      if (!account) {
-        throw new Error('No account found');
-      }
-
-      const silentRequest = {
+      const response = await instance.acquireTokenSilent({
         ...loginRequest,
-        account: account,
-      };
-
-      const response = await instance.acquireTokenSilent(silentRequest);
+        account,
+      });
       return response.accessToken;
     } catch (error) {
-      console.error('Failed to get access token:', error);
-      
-      // If silent token acquisition fails, try popup
-      try {
-        const response = await instance.acquireTokenPopup(loginRequest);
-        return response.accessToken;
-      } catch (popupError) {
-        console.error('Popup token acquisition failed:', popupError);
-        throw popupError;
+      // Popup token acquisition breaks under Cross-Origin-Opener-Policy
+      // (common in Opera / Chromium). Use redirect instead.
+      if (error instanceof InteractionRequiredAuthError || error?.name === 'BrowserAuthError') {
+        await instance.acquireTokenRedirect(loginRequest);
+        return null;
       }
+      console.error('Failed to get access token:', error);
+      throw error;
     }
   };
 
   const getAuthHeaders = async () => {
     try {
       const token = await getAccessToken();
+      if (!token) return {};
       return { 'Authorization': `Bearer ${token}` };
     } catch (error) {
       console.error('Failed to get auth headers:', error);
@@ -62,8 +60,12 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Check authentication status on mount and when accounts change
+  // Sync MSAL accounts → app user state
   useEffect(() => {
+    if (inProgress !== InteractionStatus.None) {
+      return;
+    }
+
     const account = accounts[0];
     if (account) {
       const userData = {
@@ -78,11 +80,9 @@ export const AuthProvider = ({ children }) => {
       };
       setUser(userData);
 
-      // Fetch department from backend if not already set
       if (!department) {
         rbaHelper.fetchUserDepartment(getAuthHeaders, setDepartment, setUser);
       }
-      // Start session timer if not already active (handles page refresh)
       if (!sessionUtils.hasActiveSession()) {
         sessionUtils.startSession();
       }
@@ -92,36 +92,34 @@ export const AuthProvider = ({ children }) => {
       sessionUtils.endSession();
     }
     setLoading(false);
-  }, [accounts, department]);
-
-
+  }, [accounts, department, inProgress]);
 
   const login = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Try silent login first
-      const silentRequest = {
-        ...loginRequest,
-        account: accounts[0],
-      };
-
-      try {
-        await instance.acquireTokenSilent(silentRequest);
-        // Start fresh session on login
-        sessionUtils.startSession();
-      } catch (silentError) {
-        // If silent login fails, use popup
-        await instance.loginPopup(loginRequest);
-        // Start fresh session on login
-        sessionUtils.startSession();
+      // Prefer silent SSO, then full-page redirect (no popup / COOP issues)
+      if (accounts[0]) {
+        try {
+          await instance.acquireTokenSilent({
+            ...loginRequest,
+            account: accounts[0],
+          });
+          sessionUtils.startSession();
+          setLoading(false);
+          return;
+        } catch {
+          // fall through to redirect
+        }
       }
+
+      sessionUtils.startSession();
+      await instance.loginRedirect(loginRequest);
+      // Page navigates away; no need to clear loading
     } catch (error) {
       console.error('Login failed:', error);
       setError(error.message || 'Login failed');
-    } finally {
-
       setLoading(false);
     }
   };
@@ -129,39 +127,30 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       setLoading(true);
-      
-      // Clear session timer
       sessionUtils.endSession();
-      
-      // Sign out from MSAL
-      await instance.logoutPopup({
-        postLogoutRedirectUri: "/",
-        mainWindowRedirectUri: "/"
-      });
-      
       setUser(null);
       setDepartment(null);
-      router.push('/');
+      await instance.logoutRedirect({
+        postLogoutRedirectUri: typeof window !== 'undefined' ? window.location.origin : '/',
+      });
     } catch (error) {
       console.error('Logout failed:', error);
       setError(error.message || 'Logout failed');
-    } finally {
       setLoading(false);
     }
   };
 
   const isAuthenticated = () => {
-    return !!user && accounts.length > 0;
+    return !!user && (msalAuthenticated || accounts.length > 0);
   };
 
-  // Department-based access flags
   const isAccounting = department === 'accounting';
   const isBanking = department === 'banking';
   const isAdmin = department === 'admin';
 
   const value = {
     user,
-    loading,
+    loading: loading || inProgress !== InteractionStatus.None,
     error,
     login,
     logout,
