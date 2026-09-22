@@ -34,14 +34,8 @@ backend() (
   done
   export AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=ci;AccountKey=Y2k=;EndpointSuffix=ci.invalid"
   cd backend
-  # CI provides `python` with the install from ci.yml. On laptops, fall back to python3
-  # when the shell's `python` is a different environment without ruff/pytest.
-  py=python
-  if ! python -c 'import ruff, pytest' >/dev/null 2>&1; then
-    py=python3
-  fi
-  "$py" -m ruff check .
-  "$py" -m pytest
+  python -m ruff check .
+  python -m pytest
 )
 
 case "${1:-}" in
