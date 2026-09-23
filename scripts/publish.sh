@@ -13,7 +13,7 @@
 #
 # Must not: deploy, or tag anything `latest`.
 #
-# STATUS: skeleton. Replaces the build half of scripts/docker-build-and-push.sh.
+# STATUS: implemented. Replaces the build half of scripts/docker-build-and-push.sh.
 # Reference implementation: FO-AI/nimbus scripts/publish.sh (same `az acr build` shape).
 set -euo pipefail
 
@@ -31,23 +31,46 @@ if [[ ! "$IMAGE_TAG" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
-# TODO(intern) 1. Build the backend image in ACR Tasks:
-#   az acr build --registry "$ACR_NAME" --image "charlotte-backend:${IMAGE_TAG}" backend
-#
-# TODO(intern) 2. Build the frontend image with the three NEXT_PUBLIC_* build args:
-#   az acr build --registry "$ACR_NAME" --image "charlotte-frontend:${IMAGE_TAG}" \
-#     --build-arg "NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}" \
-#     --build-arg "NEXT_PUBLIC_AZURE_AD_CLIENT_ID=${NEXT_PUBLIC_AZURE_AD_CLIENT_ID}" \
-#     --build-arg "NEXT_PUBLIC_AZURE_AD_TENANT_ID=${NEXT_PUBLIC_AZURE_AD_TENANT_ID}" \
-#     frontend
-#   The old script built with --platform linux/amd64; ACR Tasks default to that already.
-#
-# TODO(intern) 3. Smoke test: for each of backend/frontend, resolve
-#   az acr repository show --name "$ACR_NAME" --image "charlotte-<service>:${IMAGE_TAG}" \
-#     --query digest -o tsv
-#   and fail unless it matches ^sha256:[0-9a-f]{64}$.
-#
-# TODO(intern) 4. Write both image@digest references to "$GITHUB_STEP_SUMMARY" when set.
+digest_for() {
+  local service="$1"
+  local digest
+  digest="$(az acr repository show \
+    --name "$ACR_NAME" \
+    --image "charlotte-${service}:${IMAGE_TAG}" \
+    --query digest -o tsv)"
+  if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    printf '::error::charlotte-%s:%s did not resolve to a sha256 digest (got %q)\n' \
+      "$service" "$IMAGE_TAG" "$digest"
+    exit 1
+  fi
+  printf '%s\n' "$digest"
+}
 
-echo '::error::scripts/publish.sh is not implemented yet; see the TODOs in this file and docs/CI-CD.md'
-exit 1
+az acr build --registry "$ACR_NAME" --image "charlotte-backend:${IMAGE_TAG}" backend
+
+az acr build --registry "$ACR_NAME" --image "charlotte-frontend:${IMAGE_TAG}" \
+  --build-arg "NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}" \
+  --build-arg "NEXT_PUBLIC_AZURE_AD_CLIENT_ID=${NEXT_PUBLIC_AZURE_AD_CLIENT_ID}" \
+  --build-arg "NEXT_PUBLIC_AZURE_AD_TENANT_ID=${NEXT_PUBLIC_AZURE_AD_TENANT_ID}" \
+  frontend
+
+backend_digest="$(digest_for backend)"
+frontend_digest="$(digest_for frontend)"
+backend_ref="${ACR_NAME}.azurecr.io/charlotte-backend@${backend_digest}"
+frontend_ref="${ACR_NAME}.azurecr.io/charlotte-frontend@${frontend_digest}"
+
+{
+  echo "### Published images"
+  echo ""
+  echo "- \`${backend_ref}\`"
+  echo "- \`${frontend_ref}\`"
+}
+
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  {
+    echo "### Published images"
+    echo ""
+    echo "- \`${backend_ref}\`"
+    echo "- \`${frontend_ref}\`"
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
