@@ -4,7 +4,7 @@ import io
 from typing import List, Dict, Any
 from datetime import datetime
 from config import get_logger
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import UploadFile, HTTPException
 from fastapi.responses import StreamingResponse
 import pandas as pd
 import pdfplumber

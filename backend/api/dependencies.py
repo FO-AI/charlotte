@@ -2,8 +2,6 @@
 Dependencies for the backend - uses @lru_cache for lazy singleton initialization
 '''
 from functools import lru_cache
-from fastapi import Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openai import AzureOpenAI
 from config import Settings, get_logger
 from services.edi import EDIConversationMemory, EDIChatService

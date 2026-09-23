@@ -1,4 +1,4 @@
-from fastapi import HTTPException, Depends, status, Request
+from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from config import get_logger
 from typing import Optional, Dict

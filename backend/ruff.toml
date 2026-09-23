@@ -1,0 +1,26 @@
+# Narrow first-pass lint for CI. Expand rules in later PRs; do not rewrite the tree here.
+target-version = "py311"
+line-length = 120
+exclude = [
+    "depracated",
+    "scripts",
+    "myenv",
+    ".venv",
+    "venv",
+]
+
+[lint]
+select = ["E", "F"]
+ignore = [
+    "E501",  # line length — leave formatting for a dedicated pass
+    "E402",  # module-level import not at top (dotenv / logging before imports)
+    "E701",  # one-line if: — style only
+    "E722",  # bare except — existing loaders/parsers
+    "F841",  # unused locals — expand in a follow-up
+]
+
+# Dead __main__ / demo stubs that reference names never defined in those modules.
+[lint.per-file-ignores]
+"services/azure_services/azure_blob_container_client.py" = ["F821"]
+"services/data_loaders/chs_edi_json_to_excel.py" = ["F821"]
+"services/parsers/alignRx_parser.py" = ["F821"]

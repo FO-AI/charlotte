@@ -1,11 +1,9 @@
-import os
 from typing import List, Dict
 from azure.search.documents import SearchClient
-from azure.core.credentials import AzureKeyCredential
 from config import get_logger
 from openai import AzureOpenAI
 from .conversation_memory import EDIConversationMemory
-from prompts import formulate_query_prompt, ai_overview_prompt, rag_response_prompt
+from prompts import formulate_query_prompt, rag_response_prompt
 from schemas import TransactionResult
 import json
 from config import Settings
