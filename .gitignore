@@ -55,3 +55,6 @@ backend/services/data_loaders/processed_data/
 /azure-rg-template/
 node_modules
 .DS_Store
+
+# Local design-reference scrapes (third-party HTML/CSS/images; do not commit)
+.design-reference/

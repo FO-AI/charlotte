@@ -17,7 +17,6 @@ import { APIClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth/auth-context-msal';
 import BankingUploadModal from '@/components/banking/upload-modal';
 import OutsideScholarshipsUploadModal from '@/components/banking/outside-scholarships-upload-modal';
-import Logout from '@/components/logout';
 import {
   MessageSquare,
   BarChart3,

@@ -193,13 +193,13 @@ export default function Dashboard() {
               <Database className="h-7 w-7 text-white" />
             </div>
             <div>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground tracking-tight">
+              <h1 className="text-4xl md:text-5xl font-bold text-navy tracking-tight">
                 Dashboard
               </h1>
             </div>
           </div>
           <p className="text-lg md:text-xl text-muted-foreground md:ml-[4.5rem]">
-            Welcome to <span className="font-semibold text-[#4B9CD3]">Charlotte</span> - Your AI-powered EDI data management platform
+            Welcome to <span className="font-semibold text-navy">Charlotte</span> — your AI-powered EDI workspace
           </p>
         </div>
 

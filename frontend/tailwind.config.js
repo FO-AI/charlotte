@@ -59,6 +59,13 @@ module.exports = {
           '4': 'hsl(var(--chart-4))',
           '5': 'hsl(var(--chart-5))',
         },
+        navy: '#13294B',
+        carolina: '#4B9CD3',
+        bolin: '#2C5080',
+        fordham: '#B7D7ED',
+        cloud: '#EDF5FB',
+        link: '#007FAE',
+        ink: '#151515',
       },
       keyframes: {
         'accordion-down': {
