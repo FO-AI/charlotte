@@ -80,7 +80,7 @@ export default function ChatLayout() {
           scrollbar-color: rgba(75, 156, 211, 0.3) transparent;
         }
       `}} />
-      <div className="flex flex-col h-screen bg-gradient-to-br from-background via-[rgba(75,156,211,0.02)] to-background relative overflow-hidden">
+      <div className="flex flex-col h-full bg-background relative overflow-hidden">
         {/* Background decorative elements */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[#4B9CD3]/3 rounded-full blur-3xl"></div>
@@ -113,7 +113,7 @@ export default function ChatLayout() {
       >
         {/* Sidebar Toggle Button - Always Visible */}
         {sidebarCollapsed && (
-          <div className="fixed top-20 left-4 z-30 fade-in-up">
+          <div className="absolute top-4 left-4 z-30 fade-in-up">
             <Button
               variant="outline"
               size="sm"
@@ -131,16 +131,15 @@ export default function ChatLayout() {
             <div className="max-w-3xl w-full space-y-8 fade-in-up">
               {/* Welcome Header */}
               <div className="text-center space-y-6">
-                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-[#4B9CD3] to-[#2B6FA6] flex items-center justify-center mx-auto shadow-2xl fade-in-up-delay-1">
-                  <span className="text-3xl font-bold text-white">C</span>
+                <div className="w-20 h-20 rounded-full bg-carolina flex items-center justify-center mx-auto fade-in-up-delay-1">
+                  <span className="text-3xl font-bold text-white" aria-hidden="true">C</span>
                 </div>
                 <div className="space-y-3 fade-in-up-delay-2">
-                  <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground tracking-tight">
-                    How can I help you{' '}
-                    <span className="bg-gradient-to-r from-[#4B9CD3] to-[#2B6FA6] bg-clip-text text-transparent">today</span>?
-                  </h1>
+                  <h2 className="text-4xl md:text-5xl font-bold text-navy tracking-tight">
+                    How can I help you today?
+                  </h2>
                   <p className="text-muted-foreground text-lg md:text-xl max-w-2xl mx-auto">
-                    I&apos;m <span className="font-semibold text-[#4B9CD3]">Charlotte</span>, your UNC resources assistant. Ask me anything!
+                    I&apos;m <span className="font-semibold text-navy">Charlotte</span>, your UNC resources assistant. Ask me anything.
                   </p>
                 </div>
               </div>
@@ -166,7 +165,7 @@ export default function ChatLayout() {
             </div>
 
             {/* Input area - centered */}
-            <div className="w-full max-w-3xl mt-12 fade-in-up-delay-4">
+            <div id="composer" className="w-full max-w-3xl mt-12 fade-in-up-delay-4">
               <form onSubmit={handleSubmit} className="space-y-4">
                 {/* Toggle switch */}
                 {!modeLocked && (
@@ -206,7 +205,7 @@ export default function ChatLayout() {
           // Full chat view
           <div className="flex flex-col h-full min-h-0">
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto min-h-0 chat-messages-scroll">
+            <div className="flex-1 overflow-y-auto min-h-0 chat-messages-scroll chat-messages" aria-live="polite" aria-relevant="additions">
               <div className="max-w-3xl mx-auto px-4 md:px-6 py-8 space-y-6">
                 {messages.map((message, index) => (
                   <div key={index} className="fade-in-up">
@@ -218,7 +217,7 @@ export default function ChatLayout() {
             </div>
 
             {/* Input area - fixed at bottom */}
-            <div className="flex-shrink-0 border-t-2 border-primary/10 bg-background/95 backdrop-blur-md shadow-2xl">
+            <div id="composer" className="flex-shrink-0 border-t border-border bg-background">
               <div className="max-w-3xl mx-auto px-4 md:px-6 py-5">
                 <form onSubmit={handleSubmit} className="space-y-4">
                   {/* Toggle switch */}
