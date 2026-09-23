@@ -13,7 +13,7 @@ document covers only what is specific to Charlotte.
 | `.github/workflows/ci.yml` | **Live.** Runs on every PR and every push to `main`. |
 | `scripts/ci.sh` | **Live**, with starter checks (see below). Needs real tests. |
 | `publish` job in `ci.yml` | **Wired, skipped.** It runs only once the `ACR_NAME` repository variable exists. |
-| `scripts/publish.sh` | **Skeleton.** Validates inputs, then exits 1 with TODOs. |
+| `scripts/publish.sh` | **Implemented.** Builds both images in ACR by commit SHA and proves digests. Still gated by `ACR_NAME`. |
 | `.github/workflows/cd.yml` | **Wired, manual only.** `workflow_run` is commented out. |
 | `scripts/cd.sh` | **Skeleton.** Validates inputs, then exits 1 with TODOs. |
 | `scripts/docker-build-and-push.sh` | Old laptop deploy. **Still the way to ship** until `cd.sh` works. Delete it last. |
