@@ -9,29 +9,36 @@ import UtilityBar from '@/components/brand/utility-bar';
 import Logout from '@/components/logout';
 import { Button } from '@/components/ui/button';
 
-function navItemsFor({ isAuthenticated, isAccounting, isBanking, isAdmin, variant }) {
-  if (variant === 'marketing' && !isAuthenticated) {
-    return [
-      { href: '#features', label: 'Features' },
-      { href: '#about', label: 'About' },
-    ];
+const ACCOUNTING_NAV_PATHS = [
+  '/dashboard/accounting',
+  '/chat',
+  '/data-analysis',
+  '/edi-viewer',
+  '/align-rx-analysis',
+];
+
+function isAccountingSection(pathname) {
+  return ACCOUNTING_NAV_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`)
+  );
+}
+
+function navItemsFor({ isAccounting, isAdmin, variant, pathname }) {
+  if (variant === 'marketing' || !isAccountingSection(pathname)) {
+    return [];
+  }
+
+  if (!isAccounting && !isAdmin) {
+    return [];
   }
 
   const items = [];
   if (isAdmin) {
     items.push({ href: '/admin-landing', label: 'Admin' });
   }
-  if (isAccounting || isAdmin) {
-    items.push({ href: '/dashboard/accounting', label: 'Dashboard' });
-    items.push({ href: '/chat', label: 'Chat' });
-    items.push({ href: '/data-analysis', label: 'Data analysis' });
-  }
-  if (isBanking && !isAccounting) {
-    items.push({ href: '/dashboard/banking', label: 'Dashboard' });
-  }
-  if (isBanking && isAdmin) {
-    items.push({ href: '/dashboard/banking', label: 'Banking' });
-  }
+  items.push({ href: '/dashboard/accounting', label: 'Dashboard' });
+  items.push({ href: '/chat', label: 'Chat' });
+  items.push({ href: '/data-analysis', label: 'Data analysis' });
   return items;
 }
 
@@ -50,14 +57,13 @@ export default function SiteHeader({ variant = 'app' }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const toggleRef = useRef(null);
-  const { login, loading, isAuthenticated, isAccounting, isBanking, isAdmin } = useAuth();
+  const { login, loading, isAuthenticated, isAccounting, isAdmin } = useAuth();
   const signedIn = isAuthenticated();
   const items = navItemsFor({
-    isAuthenticated: signedIn,
     isAccounting,
-    isBanking,
     isAdmin,
     variant,
+    pathname,
   });
 
   useEffect(() => {
