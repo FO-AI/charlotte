@@ -63,7 +63,7 @@ jobs:
   # last, once the Azure identity is in place and scripts/publish.sh is implemented;
   # then delete the `vars.ACR_NAME != ''` clause. See docs/CI-CD.md.
   publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.ACR_NAME != ''
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 30
