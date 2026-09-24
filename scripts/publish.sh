@@ -46,13 +46,52 @@ digest_for() {
   printf '%s\n' "$digest"
 }
 
-az acr build --registry "$ACR_NAME" --image "charlotte-backend:${IMAGE_TAG}" backend
+backend_log="${RUNNER_TEMP:-/tmp}/charlotte-acr-backend.log"
+frontend_log="${RUNNER_TEMP:-/tmp}/charlotte-acr-frontend.log"
+: >"$backend_log"
+: >"$frontend_log"
+
+cleanup() {
+  wait || true
+  rm -f "$backend_log" "$frontend_log"
+}
+trap cleanup EXIT
+
+echo 'Building charlotte-backend and charlotte-frontend in ACR in parallel'
+az acr build --registry "$ACR_NAME" --image "charlotte-backend:${IMAGE_TAG}" backend \
+  >"$backend_log" 2>&1 &
+backend_pid=$!
+printf 'Started backend ACR build (pid %s)\n' "$backend_pid"
 
 az acr build --registry "$ACR_NAME" --image "charlotte-frontend:${IMAGE_TAG}" \
   --build-arg "NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}" \
   --build-arg "NEXT_PUBLIC_AZURE_AD_CLIENT_ID=${NEXT_PUBLIC_AZURE_AD_CLIENT_ID}" \
   --build-arg "NEXT_PUBLIC_AZURE_AD_TENANT_ID=${NEXT_PUBLIC_AZURE_AD_TENANT_ID}" \
-  frontend
+  frontend >"$frontend_log" 2>&1 &
+frontend_pid=$!
+printf 'Started frontend ACR build (pid %s)\n' "$frontend_pid"
+
+backend_status=0
+frontend_status=0
+wait "$backend_pid" || backend_status=$?
+wait "$frontend_pid" || frontend_status=$?
+
+echo '=== backend ACR build ==='
+cat "$backend_log"
+echo '=== frontend ACR build ==='
+cat "$frontend_log"
+
+if [[ "$backend_status" -ne 0 || "$frontend_status" -ne 0 ]]; then
+  if [[ "$backend_status" -ne 0 ]]; then
+    printf '::error::charlotte-backend:%s ACR build failed (exit %s)\n' \
+      "$IMAGE_TAG" "$backend_status"
+  fi
+  if [[ "$frontend_status" -ne 0 ]]; then
+    printf '::error::charlotte-frontend:%s ACR build failed (exit %s)\n' \
+      "$IMAGE_TAG" "$frontend_status"
+  fi
+  exit 1
+fi
 
 backend_digest="$(digest_for backend)"
 frontend_digest="$(digest_for frontend)"
