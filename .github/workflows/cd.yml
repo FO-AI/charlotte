@@ -5,10 +5,10 @@ on:
   # TEMPORARY: manual only until scripts/cd.sh has deployed successfully once by hand
   # (Actions → CD → Run workflow). Then uncomment workflow_run so every green main CI
   # deploys automatically, matching FO-AI/nimbus and FO-AI/benny.
-  # workflow_run:
-  #   workflows: [CI]
-  #   types: [completed]
-  #   branches: [main]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
