@@ -34,7 +34,7 @@ The contract gives this repo three scripts with one job each:
 | Script | Does | Must not |
 | --- | --- | --- |
 | `scripts/ci.sh <check>` | Runs one named check (`backend` or `frontend`). Sets its own fake env so it runs the same on a laptop. | Touch Azure. Read secrets. |
-| `scripts/publish.sh` | Builds `charlotte-backend:$IMAGE_TAG` and `charlotte-frontend:$IMAGE_TAG` in ACR and proves both resolve to digests. | Deploy. Tag `latest`. |
+| `scripts/publish.sh` | Builds `charlotte-backend:$IMAGE_TAG` and `charlotte-frontend:$IMAGE_TAG` in ACR in parallel and proves both resolve to digests. | Deploy. Tag `latest`. |
 | `scripts/cd.sh` | Looks up those digests, applies settings, points both web apps at `image@sha256:…`, rechecks `main`, verifies health. | Build. Take a digest from its environment. |
 
 Both workflows are pinned to the FO-AI automation commit that Nimbus and Benny use
