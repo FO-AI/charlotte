@@ -46,24 +46,36 @@ digest_for() {
   printf '%s\n' "$digest"
 }
 
-backend_log="${RUNNER_TEMP:-/tmp}/charlotte-acr-backend.log"
-frontend_log="${RUNNER_TEMP:-/tmp}/charlotte-acr-frontend.log"
+work_dir="${RUNNER_TEMP:-/tmp}"
+backend_log="$work_dir/charlotte-acr-backend.log"
+frontend_log="$work_dir/charlotte-acr-frontend.log"
+# Two concurrent `az` processes sharing one config dir can lose the token-cache
+# lock. Give each build a copy of the already-authenticated CLI state.
+az_src="${AZURE_CONFIG_DIR:-$HOME/.azure}"
+backend_az="$work_dir/charlotte-az-backend"
+frontend_az="$work_dir/charlotte-az-frontend"
 : >"$backend_log"
 : >"$frontend_log"
+rm -rf "$backend_az" "$frontend_az"
+mkdir -p "$backend_az" "$frontend_az"
+cp -a "$az_src/." "$backend_az/"
+cp -a "$az_src/." "$frontend_az/"
 
 cleanup() {
   wait || true
-  rm -f "$backend_log" "$frontend_log"
+  rm -rf "$backend_log" "$frontend_log" "$backend_az" "$frontend_az"
 }
 trap cleanup EXIT
 
 echo 'Building charlotte-backend and charlotte-frontend in ACR in parallel'
-az acr build --registry "$ACR_NAME" --image "charlotte-backend:${IMAGE_TAG}" backend \
+AZURE_CONFIG_DIR="$backend_az" az acr build \
+  --registry "$ACR_NAME" --image "charlotte-backend:${IMAGE_TAG}" backend \
   >"$backend_log" 2>&1 &
 backend_pid=$!
 printf 'Started backend ACR build (pid %s)\n' "$backend_pid"
 
-az acr build --registry "$ACR_NAME" --image "charlotte-frontend:${IMAGE_TAG}" \
+AZURE_CONFIG_DIR="$frontend_az" az acr build \
+  --registry "$ACR_NAME" --image "charlotte-frontend:${IMAGE_TAG}" \
   --build-arg "NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}" \
   --build-arg "NEXT_PUBLIC_AZURE_AD_CLIENT_ID=${NEXT_PUBLIC_AZURE_AD_CLIENT_ID}" \
   --build-arg "NEXT_PUBLIC_AZURE_AD_TENANT_ID=${NEXT_PUBLIC_AZURE_AD_TENANT_ID}" \
