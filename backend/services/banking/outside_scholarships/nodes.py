@@ -30,6 +30,9 @@ _PAGE_RENDER_DPI = 200
 _SIDE_CLASSIFICATION_DPI = 50
 # Conservative, to stay under the per-request image limit of vision chat models.
 _SIDE_CLASSIFICATION_BATCH_SIZE = 10
+# The model sometimes leaves a page out of a batch's reply (3 of 7 real runs on 2026-09-28), and
+# that fails the whole upload. A batch is cheap to resend and usually comes back complete.
+_SIDE_CLASSIFICATION_ATTEMPTS = 3
 
 # PyMuPDF does not support use from several threads at once, and check workers (and concurrent
 # uploads) run in parallel threads. Every PyMuPDF call, including opening and closing documents,
@@ -166,12 +169,23 @@ def _side_classification_content(document: fitz.Document, page_numbers: Sequence
 
 
 def _classify_batch(llm: Any, content: List[Dict[str, Any]], page_numbers: Sequence[int]) -> List[str]:
-    response = llm.chat.completions.create(
-        model=_MODEL,
-        messages=[{"role": "user", "content": content}],
-        response_format={"type": "json_object"},
-    )
-    return _parse_page_sides(response.choices[0].message.content, page_numbers)
+    for attempt in range(1, _SIDE_CLASSIFICATION_ATTEMPTS + 1):
+        response = llm.chat.completions.create(
+            model=_MODEL,
+            messages=[{"role": "user", "content": content}],
+            response_format={"type": "json_object"},
+        )
+        try:
+            return _parse_page_sides(response.choices[0].message.content, page_numbers)
+        except RuntimeError as exc:
+            if attempt == _SIDE_CLASSIFICATION_ATTEMPTS:
+                raise
+            logger.warning(
+                "outside_scholarships.pairing: attempt %s of %s: %s; retrying",
+                attempt,
+                _SIDE_CLASSIFICATION_ATTEMPTS,
+                exc,
+            )
 
 
 def _classify_page_sides(
