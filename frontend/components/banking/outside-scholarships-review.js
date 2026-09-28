@@ -242,7 +242,7 @@ function CheckThumb({ src, alt, label, emptyLabel, onOpen }) {
   if (!src) {
     return (
       <div className="rounded border bg-muted/10 p-3">
-        <p className="mb-1 text-sm font-medium">{label}</p>
+        <p className="mb-1 text-base font-bold text-navy">{label}</p>
         <p className="text-sm text-muted-foreground">{emptyLabel}</p>
       </div>
     );
@@ -250,7 +250,7 @@ function CheckThumb({ src, alt, label, emptyLabel, onOpen }) {
 
   return (
     <div>
-      <p className="mb-2 text-sm font-medium">{label}</p>
+      <p className="mb-2 text-base font-bold text-navy">{label}</p>
       <button
         type="button"
         className="group relative block w-full overflow-hidden rounded border bg-muted/20 text-left focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy"
@@ -374,9 +374,9 @@ function EditedMarker({ show, original }) {
 
 function FieldLabel({ children, invalid }) {
   return (
-    <span className="mb-1 flex items-center gap-1 text-sm font-medium">
+    <span className="mb-1.5 flex items-center gap-1.5 text-base font-bold text-navy">
       {children}
-      {invalid ? <AlertCircle className="h-3.5 w-3.5 text-red-600" aria-hidden="true" /> : null}
+      {invalid ? <AlertCircle className="h-4 w-4 text-red-600" aria-hidden="true" /> : null}
     </span>
   );
 }
@@ -1094,7 +1094,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
 
                     <div className="space-y-3">
                       <div className="flex items-center justify-between gap-2">
-                        <h3 className="text-sm font-medium">PIDs</h3>
+                        <h3 className="text-base font-bold text-navy">PIDs</h3>
                         {checkNeedsReview(selectedCheck) || selectedCheck.verified ? (
                           <Button type="button" variant="outline" size="sm" onClick={toggleVerified}>
                             {selectedCheck.verified ? 'Undo' : 'Mark verified'}
