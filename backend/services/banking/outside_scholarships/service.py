@@ -53,14 +53,6 @@ class OutsideScholarshipService:
             if not pdf_bytes:
                 raise HTTPException(status_code=400, detail="Uploaded PDF is empty.")
 
-            di_client = self.azure_client.get_di()
-            if di_client is None:
-                logger.error("outside_scholarships.service: Document Intelligence client not configured")
-                raise HTTPException(
-                    status_code=500,
-                    detail="Document Intelligence client is not configured.",
-                )
-
             initial_state = {
                 "pdf_folder": None,
                 "pdf_files_bytes": [pdf_bytes],
@@ -70,20 +62,16 @@ class OutsideScholarshipService:
             }
             config = {
                 "max_concurrency": MAX_CONCURRENT_CHECKS,
-                "configurable": {
-                    "llm": self.azure_client.llm,
-                    "document_intelligence_client": di_client,
-                    "document_intelligence_model_id": self.azure_client.di_model_id,
-                }
+                "configurable": {"llm": self.azure_client.llm},
             }
 
-            logger.info("outside_scholarships.service: starting hybrid extraction for %s", filename)
+            logger.info("outside_scholarships.service: starting extraction for %s", filename)
             try:
                 result = await asyncio.to_thread(self._graph.invoke, initial_state, config)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except Exception as exc:
-                logger.exception("outside_scholarships.service: hybrid extraction failed")
+                logger.exception("outside_scholarships.service: extraction failed")
                 raise HTTPException(status_code=500, detail="Failed to process outside scholarship PDF.") from exc
 
             payload = result.get("final_payload", {"checks": []})
@@ -100,10 +88,6 @@ class OutsideScholarshipService:
 
     async def process_folder(self, folder_path: str) -> Dict[str, Any]:
         """Process all PDF checks found in a local folder."""
-        di_client = self.azure_client.get_di()
-        if di_client is None:
-            raise RuntimeError("Document Intelligence client is not configured.")
-
         initial_state = {
             "pdf_folder": folder_path,
             "pdf_files_bytes": [],
@@ -113,11 +97,7 @@ class OutsideScholarshipService:
         }
         config = {
             "max_concurrency": MAX_CONCURRENT_CHECKS,
-            "configurable": {
-                "llm": self.azure_client.llm,
-                "document_intelligence_client": di_client,
-                "document_intelligence_model_id": self.azure_client.di_model_id,
-            }
+            "configurable": {"llm": self.azure_client.llm},
         }
 
         result = await asyncio.to_thread(self._graph.invoke, initial_state, config)
