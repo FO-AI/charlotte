@@ -6,7 +6,8 @@ from fastapi import HTTPException
 from fastapi import UploadFile
 from fastapi.responses import StreamingResponse
 
-from services.azure_services import AzureClient
+from services.azure_services import AzureClient, GraphUserDirectory
+from services.banking.outside_scholarships.active_directory_names import lookup_active_directory_names
 from services.banking.outside_scholarships.graph import build_graph
 from services.data_loaders import OutsideScholarshipsDataLoader
 from config import get_logger
@@ -15,17 +16,23 @@ logger = get_logger(__name__)
 
 
 class OutsideScholarshipService:
-    def __init__(self, azure_client: AzureClient):
+    def __init__(self, azure_client: AzureClient, user_directory: GraphUserDirectory):
         self.azure_client = azure_client
+        self.user_directory = user_directory
         self._graph = build_graph()
 
     async def upload_and_analyze_files(
         self,
         files: List[UploadFile],
+        graph_access_token: str,
         aid_year: str | None = None,
         aid_term: str | None = None,
     ) -> StreamingResponse:
-        """Accept uploaded PDF files, run extraction, and return an Excel file."""
+        """Accept uploaded PDF files, run extraction, and return an Excel file.
+
+        `graph_access_token` is the signed-in user's Microsoft Graph token, used to look
+        up each PID's Active Directory name.
+        """
         if len(files) != 1:
             raise HTTPException(status_code=400, detail="Upload exactly one PDF file.")
 
@@ -75,7 +82,12 @@ class OutsideScholarshipService:
 
             payload = result.get("final_payload", {"checks": []})
             self._log_extracted_checks(payload)
-            return self._build_excel_response(payload, aid_year=aid_year, aid_term=aid_term)
+            active_directory_names = await lookup_active_directory_names(
+                self.user_directory, payload.get("checks", []), graph_access_token
+            )
+            return self._build_excel_response(
+                payload, active_directory_names, aid_year=aid_year, aid_term=aid_term
+            )
         finally:
             # Explicitly close uploaded file handle to avoid residual temp file handles.
             await upload.close()
@@ -109,11 +121,16 @@ class OutsideScholarshipService:
     @staticmethod
     def _build_excel_response(
         extraction_payload: Dict[str, Any],
+        active_directory_names: Dict[str, str],
         aid_year: str | None = None,
         aid_term: str | None = None,
     ) -> StreamingResponse:
         try:
-            loader = OutsideScholarshipsDataLoader(aid_year=aid_year, aid_term=aid_term)
+            loader = OutsideScholarshipsDataLoader(
+                aid_year=aid_year,
+                aid_term=aid_term,
+                active_directory_names=active_directory_names,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

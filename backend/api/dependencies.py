@@ -5,7 +5,7 @@ from functools import lru_cache
 from openai import AzureOpenAI
 from config import Settings, get_logger
 from services.edi import EDIConversationMemory, EDIChatService
-from services.azure_services import BlobStorageClient, AzureClient, AzureCosmosClient
+from services.azure_services import BlobStorageClient, AzureClient, AzureCosmosClient, GraphUserDirectory
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 from typing import Dict
@@ -46,6 +46,12 @@ def get_azure_client() -> AzureClient:
     """Lazy singleton for Azure AI client"""
     settings = get_settings()
     return AzureClient()
+
+
+@lru_cache()
+def get_graph_user_directory() -> GraphUserDirectory:
+    """Lazy singleton for the Microsoft Graph user directory (stateless; each call carries the user's token)"""
+    return GraphUserDirectory()
 
 
 def _get_search_client(index_name: str) -> SearchClient:
