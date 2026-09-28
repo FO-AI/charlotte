@@ -92,7 +92,10 @@ export function summarizeReview(checks) {
   for (const check of list) {
     const pids = Array.isArray(check?.pids) ? check.pids : [];
     pidCount += pids.filter((entry) => String(entry?.pid ?? '').trim()).length;
-    const amountText = String(check?.amount ?? '').replace(/\$/g, '').replace(/,/g, '');
+    const amountText = String(check?.amount ?? '')
+      .replace(/\$/g, '')
+      .replace(/,/g, '')
+      .replace(/\s/g, '');
     const amount = Number.parseFloat(amountText);
     if (!Number.isNaN(amount)) totalAmount += amount;
     if (checkNeedsReview(check)) needsReview += 1;

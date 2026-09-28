@@ -28,13 +28,18 @@ def format_active_directory_name(user: DirectoryUser) -> str:
     return user.display_name or ""
 
 
+def _normalize_pid(pid: Any) -> str:
+    """Nine-digit employeeId form: strip non-digits (e.g. 730-00-0001 → 730000001)."""
+    return "".join(ch for ch in str(pid or "") if ch.isdigit())
+
+
 def _distinct_pids_from_checks(checks: Sequence[Dict[str, Any]]) -> List[str]:
-    pids = (str(pid).strip() for check in checks for pid in check.get("pid_list") or [])
+    pids = (_normalize_pid(pid) for check in checks for pid in check.get("pid_list") or [])
     return list(dict.fromkeys(pid for pid in pids if pid))
 
 
 def _normalize_pid_list(pids: Sequence[Any]) -> List[str]:
-    return list(dict.fromkeys(str(pid).strip() for pid in pids if pid is not None and str(pid).strip()))
+    return list(dict.fromkeys(_normalize_pid(pid) for pid in pids if _normalize_pid(pid)))
 
 
 async def lookup_pids(
