@@ -2,7 +2,6 @@ import asyncio
 from datetime import datetime
 from typing import Any, Dict, List
 
-import fitz
 from fastapi import HTTPException
 from fastapi import UploadFile
 from fastapi.responses import StreamingResponse
@@ -41,8 +40,6 @@ class OutsideScholarshipService:
             pdf_bytes = await upload.read()
             if not pdf_bytes:
                 raise HTTPException(status_code=400, detail="Uploaded PDF is empty.")
-
-            self._validate_even_page_count(pdf_bytes)
 
             di_client = self.azure_client.get_di()
             if di_client is None:
@@ -134,19 +131,6 @@ class OutsideScholarshipService:
             headers=headers,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-
-    @staticmethod
-    def _validate_even_page_count(pdf_bytes: bytes) -> None:
-        with fitz.open(stream=pdf_bytes, filetype="pdf") as document:
-            page_count = document.page_count
-        if page_count % 2 != 0:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Invalid outside scholarship PDF: page count must be even so pages can be "
-                    f"paired as front/back checks. Found {page_count} page(s)."
-                ),
-            )
 
     @staticmethod
     def _log_extracted_checks(payload: Dict[str, Any]) -> None:

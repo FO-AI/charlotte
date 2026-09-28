@@ -9,11 +9,25 @@ from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
 from langgraph.types import RunnableConfig, Send
 
 from config import get_logger
-from prompts.outside_scholarship import VERIFY_OUTSIDE_SCHOLARSHIP_PROMPT
+from prompts.outside_scholarship import (
+    CHECK_IMAGES_FRONT_AND_BACK,
+    CHECK_IMAGES_FRONT_ONLY,
+    CLASSIFY_CHECK_SIDES_PROMPT,
+    VERIFY_OUTSIDE_SCHOLARSHIP_PROMPT,
+)
 from services.banking.outside_scholarships.state import CheckPair, OrchestratorState, WorkerState
 
 logger = get_logger(__name__)
 _MODEL = "gpt-5-chat"
+
+_FRONT_SIDE = "front"
+_BACK_SIDE = "back"
+_PAGE_SIDES = {_FRONT_SIDE, _BACK_SIDE}
+_PAGE_RENDER_DPI = 200
+# Thumbnails are enough to tell a check's face from its reverse and keep requests small.
+_SIDE_CLASSIFICATION_DPI = 50
+# Conservative, to stay under the per-request image limit of vision chat models.
+_SIDE_CLASSIFICATION_BATCH_SIZE = 10
 
 _REQUIRED_FIELDS = (
     "amount",
@@ -323,8 +337,86 @@ def _reconcile_scalar_field(field: str, di_candidate: Dict[str, Any], llm_candid
     }
 
 
+def _render_page_png(document: fitz.Document, page_index: int, dpi: int) -> bytes:
+    scale = dpi / 72
+    return document.load_page(page_index).get_pixmap(matrix=fitz.Matrix(scale, scale)).tobytes("png")
+
+
+def _png_image_part(png_bytes: bytes) -> Dict[str, Any]:
+    encoded = base64.b64encode(png_bytes).decode("utf-8")
+    return {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}}
+
+
+def _parse_page_sides(reply: str, page_numbers: Sequence[int]) -> List[str]:
+    """Validate a side-classification reply and return the sides in page order.
+
+    Raises RuntimeError, not ValueError, for a bad reply: it is a model failure rather than a
+    problem with the uploaded PDF, so it must not reach the user as a 400.
+    """
+    expected_pages = list(page_numbers)
+    try:
+        entries = json.loads(reply)["pages"]
+        sides_by_page = {int(entry["page"]): str(entry["side"]).strip().lower() for entry in entries}
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"Page side classification returned an unreadable reply for pages {expected_pages}.") from exc
+
+    if len(entries) != len(expected_pages) or sorted(sides_by_page) != expected_pages:
+        raise RuntimeError(
+            f"Page side classification returned pages {sorted(sides_by_page)}, expected {expected_pages}."
+        )
+    unknown_sides = sorted({side for side in sides_by_page.values() if side not in _PAGE_SIDES})
+    if unknown_sides:
+        raise RuntimeError(f"Page side classification returned unknown side(s) {unknown_sides}.")
+
+    return [sides_by_page[page_number] for page_number in expected_pages]
+
+
+def _classify_page_sides(document: fitz.Document, llm: Any) -> List[str]:
+    """Label every page of the PDF as a check front or back, in page order."""
+    sides: List[str] = []
+    for batch_start in range(0, document.page_count, _SIDE_CLASSIFICATION_BATCH_SIZE):
+        batch_end = min(batch_start + _SIDE_CLASSIFICATION_BATCH_SIZE, document.page_count)
+        # Label pages with their PDF page numbers so logs and errors match what the user sees.
+        page_numbers = list(range(batch_start + 1, batch_end + 1))
+
+        content: List[Dict[str, Any]] = [{"type": "text", "text": CLASSIFY_CHECK_SIDES_PROMPT}]
+        for page_number in page_numbers:
+            content.append({"type": "text", "text": f"Page {page_number}"})
+            content.append(_png_image_part(_render_page_png(document, page_number - 1, _SIDE_CLASSIFICATION_DPI)))
+
+        response = llm.chat.completions.create(
+            model=_MODEL,
+            messages=[{"role": "user", "content": content}],
+            response_format={"type": "json_object"},
+        )
+        sides.extend(_parse_page_sides(response.choices[0].message.content, page_numbers))
+    return sides
+
+
+def _group_pages_by_check(sides: Sequence[str]) -> List[Tuple[int, Optional[int]]]:
+    """Group 0-based page indexes into (front, back or None) per check.
+
+    Every check starts with its front; a back belongs to the front directly before it.
+    """
+    checks: List[Tuple[int, Optional[int]]] = []
+    for page_index, side in enumerate(sides):
+        if side == _FRONT_SIDE:
+            checks.append((page_index, None))
+            continue
+        if not checks or checks[-1][1] is not None:
+            raise ValueError(
+                f"Page {page_index + 1} looks like the back of a check, but there is no check front "
+                "right before it. Put each check's front first, followed by its back, and upload again."
+            )
+        checks[-1] = (checks[-1][0], page_index)
+    return checks
+
+
 def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[str, Any]:
-    """Read PDF bytes/folder inputs, validate even page counts, and pair front/back pages per check."""
+    """Read PDF bytes/folder inputs, detect each page's side, and group pages per check.
+
+    Each check is its front page, followed by its back when one was scanned.
+    """
     pdf_bytes_list: List[bytes] = list(state.get("pdf_files_bytes") or [])
 
     if not pdf_bytes_list and state.get("pdf_folder"):
@@ -339,35 +431,33 @@ def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[st
         logger.info("outside_scholarships.pairing: no PDFs found")
         return {"check_pairs": []}
 
+    llm = config["configurable"]["llm"]
     paired_checks: List[CheckPair] = []
     check_index = 1
-    render_matrix = fitz.Matrix(200 / 72, 200 / 72)
 
     for pdf_idx, pdf_bytes in enumerate(pdf_bytes_list, start=1):
         document = fitz.open(stream=pdf_bytes, filetype="pdf")
         try:
-            page_count = document.page_count
+            page_sides = _classify_page_sides(document, llm)
             logger.info(
-                "outside_scholarships.pairing: pdf=%s pages=%s",
+                "outside_scholarships.pairing: pdf=%s pages=%s sides=%s",
                 pdf_idx,
-                page_count,
+                document.page_count,
+                ",".join(page_sides),
             )
 
-            if page_count % 2 != 0:
-                raise ValueError(
-                    "Invalid outside scholarship PDF: page count must be even so pages can be paired "
-                    f"as front/back checks. Found {page_count} page(s)."
-                )
-
-            for page_idx in range(0, page_count, 2):
-                front_page = document.load_page(page_idx)
-                back_page = document.load_page(page_idx + 1)
-
-                front_image = front_page.get_pixmap(matrix=render_matrix).tobytes("png")
-                back_image = back_page.get_pixmap(matrix=render_matrix).tobytes("png")
+            for front_page_idx, back_page_idx in _group_pages_by_check(page_sides):
+                front_image = _render_page_png(document, front_page_idx, _PAGE_RENDER_DPI)
+                back_image = None
+                if back_page_idx is not None:
+                    back_image = _render_page_png(document, back_page_idx, _PAGE_RENDER_DPI)
 
                 pair_document = fitz.open()
-                pair_document.insert_pdf(document, from_page=page_idx, to_page=page_idx + 1)
+                pair_document.insert_pdf(
+                    document,
+                    from_page=front_page_idx,
+                    to_page=front_page_idx if back_page_idx is None else back_page_idx,
+                )
                 pair_pdf_bytes = pair_document.tobytes()
                 pair_document.close()
 
@@ -382,8 +472,8 @@ def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[st
                 logger.info(
                     "outside_scholarships.pairing: check=%s front_page=%s back_page=%s",
                     check_index,
-                    page_idx + 1,
-                    page_idx + 2,
+                    front_page_idx + 1,
+                    None if back_page_idx is None else back_page_idx + 1,
                 )
                 check_index += 1
         finally:
@@ -397,22 +487,20 @@ def dispatch(state: OrchestratorState) -> List[Send]:
     """Fan-out: spawn one worker per paired check."""
     return [
         Send(
-            "di_extract",
+            "process_check",
             {
                 "check_index": pair["check_index"],
                 "front_image": pair["front_image"],
                 "back_image": pair["back_image"],
                 "pair_pdf_bytes": pair["pair_pdf_bytes"],
-                "di_candidate": {},
-                "llm_candidate": {},
             },
         )
         for pair in state.get("check_pairs", [])
     ]
 
 
-def di_extract_node(state: WorkerState, config: RunnableConfig) -> Dict[str, Any]:
-    """Document Intelligence first pass for a front/back pair."""
+def _di_extract(state: WorkerState, config: RunnableConfig) -> Dict[str, Any]:
+    """Document Intelligence first pass over a check's front page and back page, if any."""
     di_client = config["configurable"].get("document_intelligence_client")
     di_model_id = config["configurable"].get("document_intelligence_model_id", "prebuilt-layout")
 
@@ -442,43 +530,39 @@ def di_extract_node(state: WorkerState, config: RunnableConfig) -> Dict[str, Any
     di_candidate = _extract_di_candidate(analyze_result)
 
     logger.info("outside_scholarships.di: check=%s pid_count=%s", check_index, len(di_candidate["pid_list"]))
-    return {
-        "check_index": check_index,
-        "front_image": state.get("front_image"),
-        "back_image": state.get("back_image"),
-        "di_candidate": di_candidate,
-    }
+    return di_candidate
 
 
-def llm_verify_node(state: WorkerState, config: RunnableConfig) -> Dict[str, Any]:
-    """LLM verification/correction pass using both check pages + DI first-pass fields."""
+def _llm_verify(state: WorkerState, di_candidate: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    """LLM verification/correction pass using the check's front (and back, if scanned) + DI first-pass fields."""
     llm = config["configurable"]["llm"]
     check_index = state.get("check_index")
     front_image = state.get("front_image")
     back_image = state.get("back_image")
-    if not front_image or not back_image:
-        raise ValueError("Missing front/back check images for LLM verification.")
+    if not front_image:
+        raise ValueError("Missing front check image for LLM verification.")
 
-    front_b64 = base64.b64encode(front_image).decode("utf-8")
-    back_b64 = base64.b64encode(back_image).decode("utf-8")
-    di_candidate = _normalize_candidate(state.get("di_candidate"))
+    image_parts = [_png_image_part(front_image)]
+    check_images_description = CHECK_IMAGES_FRONT_ONLY
+    if back_image:
+        image_parts.append(_png_image_part(back_image))
+        check_images_description = CHECK_IMAGES_FRONT_AND_BACK
 
     prompt = VERIFY_OUTSIDE_SCHOLARSHIP_PROMPT.replace(
+        "{check_images_description}",
+        check_images_description,
+    ).replace(
         "{di_candidate_json}",
         json.dumps(di_candidate, ensure_ascii=False),
     )
 
-    logger.info("outside_scholarships.llm_verify: check=%s starting", check_index)
+    logger.info("outside_scholarships.llm_verify: check=%s starting has_back=%s", check_index, back_image is not None)
     response = llm.chat.completions.create(
         model=_MODEL,
         messages=[
             {
                 "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{front_b64}"}},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{back_b64}"}},
-                ],
+                "content": [{"type": "text", "text": prompt}, *image_parts],
             }
         ],
         response_format={"type": "json_object"},
@@ -486,19 +570,15 @@ def llm_verify_node(state: WorkerState, config: RunnableConfig) -> Dict[str, Any
 
     llm_candidate = _normalize_candidate(json.loads(response.choices[0].message.content))
     logger.info("outside_scholarships.llm_verify: check=%s pid_count=%s", check_index, len(llm_candidate["pid_list"]))
-    return {
-        "check_index": check_index,
-        "di_candidate": di_candidate,
-        "llm_candidate": llm_candidate,
-    }
+    return llm_candidate
 
 
-def reconcile_node(state: WorkerState, config: RunnableConfig) -> Dict[str, Any]:
+def _reconcile(
+    check_index: Optional[int],
+    di_candidate: Dict[str, Any],
+    llm_candidate: Dict[str, Any],
+) -> Dict[str, Any]:
     """Merge DI first-pass + LLM verification into final check output."""
-    check_index = state.get("check_index")
-    di_candidate = _normalize_candidate(state.get("di_candidate"))
-    llm_candidate = _normalize_candidate(state.get("llm_candidate"))
-
     merged_pid_list = _dedupe_pids(di_candidate.get("pid_list", []) + llm_candidate.get("pid_list", []))
     pid_status = "match" if di_candidate.get("pid_list", []) == llm_candidate.get("pid_list", []) else "corrected"
 
@@ -540,6 +620,19 @@ def reconcile_node(state: WorkerState, config: RunnableConfig) -> Dict[str, Any]
         check_index,
         len(final_check["pid_list"]),
     )
+    return final_check
+
+
+def process_check_node(state: WorkerState, config: RunnableConfig) -> Dict[str, Any]:
+    """Worker: DI extraction, LLM verification, and reconciliation for one check pair.
+
+    All three steps run inside a single node so each Send branch keeps its intermediate
+    candidates local. Only check_results (an operator.add reducer) is written back to the
+    shared graph state, so parallel workers never collide on a single-value key.
+    """
+    di_candidate = _di_extract(state, config)
+    llm_candidate = _llm_verify(state, di_candidate, config)
+    final_check = _reconcile(state.get("check_index"), di_candidate, llm_candidate)
     return {"check_results": [final_check]}
 
 

@@ -131,8 +131,8 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose }) {
             Upload Outside Scholarship Checks
           </DialogTitle>
           <DialogDescription>
-            Upload one PDF containing scanned check fronts and backs. Pages should be
-            ordered front, back, front, back. Each two-page pair represents one check.
+            Upload one PDF of scanned checks. Put each check&apos;s front first, followed by
+            its back if you have it. Checks without a back are fine.
           </DialogDescription>
         </DialogHeader>
 
