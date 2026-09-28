@@ -37,6 +37,231 @@ import {
 const FOCUS_INPUT =
   'w-full rounded-md border px-2 py-1.5 text-sm focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy';
 
+const LIGHTBOX_MIN_ZOOM = 1;
+const LIGHTBOX_MAX_ZOOM = 4;
+const LIGHTBOX_ZOOM_STEP = 0.25;
+
+function CheckImageLightbox({ src, alt, onClose }) {
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const dragRef = useRef(null);
+  const closeButtonRef = useRef(null);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      } else if (event.key === '+' || event.key === '=') {
+        event.preventDefault();
+        setZoom((value) => Math.min(LIGHTBOX_MAX_ZOOM, Number((value + LIGHTBOX_ZOOM_STEP).toFixed(2))));
+      } else if (event.key === '-') {
+        event.preventDefault();
+        setZoom((value) => {
+          const next = Math.max(LIGHTBOX_MIN_ZOOM, Number((value - LIGHTBOX_ZOOM_STEP).toFixed(2)));
+          if (next <= 1) setOffset({ x: 0, y: 0 });
+          return next;
+        });
+      } else if (event.key === '0') {
+        event.preventDefault();
+        setZoom(1);
+        setOffset({ x: 0, y: 0 });
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [onClose]);
+
+  const adjustZoom = (nextZoom, anchor = null) => {
+    setZoom((prev) => {
+      const clamped = Math.min(
+        LIGHTBOX_MAX_ZOOM,
+        Math.max(LIGHTBOX_MIN_ZOOM, Number(Number(nextZoom).toFixed(2)))
+      );
+      if (clamped <= 1) {
+        setOffset({ x: 0, y: 0 });
+        return 1;
+      }
+      if (anchor && prev > 0) {
+        const ratio = clamped / prev;
+        setOffset((current) => ({
+          x: anchor.x - (anchor.x - current.x) * ratio,
+          y: anchor.y - (anchor.y - current.y) * ratio,
+        }));
+      }
+      return clamped;
+    });
+  };
+
+  const onDoubleClick = (event) => {
+    event.preventDefault();
+    if (zoom > 1) {
+      setZoom(1);
+      setOffset({ x: 0, y: 0 });
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left - rect.width / 2;
+    const y = event.clientY - rect.top - rect.height / 2;
+    setZoom(2);
+    setOffset({ x: -x, y: -y });
+  };
+
+  const onWheel = (event) => {
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const anchor = {
+      x: event.clientX - rect.left - rect.width / 2,
+      y: event.clientY - rect.top - rect.height / 2,
+    };
+    const delta = event.deltaY < 0 ? LIGHTBOX_ZOOM_STEP : -LIGHTBOX_ZOOM_STEP;
+    adjustZoom(zoom + delta, anchor);
+  };
+
+  const onPointerDown = (event) => {
+    if (zoom <= 1) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: offset.x,
+      originY: offset.y,
+    };
+  };
+
+  const onPointerMove = (event) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    setOffset({
+      x: drag.originX + (event.clientX - drag.startX),
+      y: drag.originY + (event.clientY - drag.startY),
+    });
+  };
+
+  const onPointerUp = (event) => {
+    if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null;
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex flex-col bg-black/70"
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt}
+      onClick={onClose}
+    >
+      <div
+        className="flex items-center justify-between gap-3 px-4 py-3 text-white"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <p className="text-sm truncate">{alt}</p>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            aria-label="Zoom out"
+            onClick={() => adjustZoom(zoom - LIGHTBOX_ZOOM_STEP)}
+          >
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            aria-label="Zoom in"
+            onClick={() => adjustZoom(zoom + LIGHTBOX_ZOOM_STEP)}
+          >
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setZoom(1);
+              setOffset({ x: 0, y: 0 });
+            }}
+          >
+            Fit
+          </Button>
+          <span className="text-xs tabular-nums w-12 text-center">{Math.round(zoom * 100)}%</span>
+          <Button ref={closeButtonRef} type="button" variant="secondary" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+      <div
+        className={`flex-1 min-h-0 overflow-hidden flex items-center justify-center px-4 pb-4 ${
+          zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'
+        }`}
+        onClick={(event) => event.stopPropagation()}
+        onWheel={onWheel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt={alt}
+          draggable={false}
+          onDoubleClick={onDoubleClick}
+          className="max-h-full max-w-full object-contain select-none shadow-2xl rounded-sm bg-white"
+          style={{
+            transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+            transformOrigin: 'center center',
+          }}
+        />
+      </div>
+      <p className="sr-only">
+        Double-click to zoom in or out. Scroll to zoom. Drag when zoomed. Press Escape to close.
+      </p>
+      <p className="px-4 pb-3 text-center text-xs text-white/80" aria-hidden="true">
+        Double-click to zoom · Scroll to zoom · Drag when zoomed · Esc to close
+      </p>
+    </div>
+  );
+}
+
+function CheckThumb({ src, alt, label, emptyLabel, onOpen }) {
+  if (!src) {
+    return (
+      <div>
+        <p className="mb-2 text-sm font-medium">{label}</p>
+        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p className="mb-2 text-sm font-medium">{label}</p>
+      <button
+        type="button"
+        className="group relative block w-full overflow-hidden rounded border bg-muted/20 text-left focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy"
+        onClick={() => onOpen({ src, alt })}
+        aria-label={`Enlarge ${alt}`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={alt} className="w-full h-auto" />
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/55 px-2 py-1.5 text-xs text-white opacity-90 group-hover:opacity-100">
+          Click to enlarge · double-click zooms
+        </span>
+      </button>
+    </div>
+  );
+}
+
 function cloneChecks(checks) {
   return (checks || []).map((check) => ({
     ...check,
@@ -49,12 +274,17 @@ function cloneChecks(checks) {
   }));
 }
 
-function checkLabel(check) {
+function CheckLabel({ check }) {
   const index = check.check_index ?? '?';
-  if (check.back_page) {
-    return `Check ${index} · pages ${check.front_page}–${check.back_page}`;
-  }
-  return `Check ${index} · page ${check.front_page}, no back scanned`;
+  const pages = check.back_page
+    ? `Pages ${check.front_page}–${check.back_page}`
+    : `Page ${check.front_page}, no back`;
+  return (
+    <div className="leading-tight">
+      <div className="font-medium">Check {index}</div>
+      <div className="text-xs text-muted-foreground whitespace-normal">{pages}</div>
+    </div>
+  );
 }
 
 function StatusBadge({ check }) {
@@ -109,7 +339,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const [aidTerm, setAidTerm] = useState(preview?.aid_term || 'F');
   const [filter, setFilter] = useState('all');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [zoom, setZoom] = useState(1);
+  const [lightbox, setLightbox] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -161,13 +391,14 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   useEffect(() => {
     const onKeyDown = (event) => {
       if (event.key === 'Escape') {
+        if (lightbox) return;
         event.preventDefault();
         handleClose();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleClose]);
+  }, [handleClose, lightbox]);
 
   const markDirty = useCallback(() => setDirty(true), []);
 
@@ -491,7 +722,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                             <StatusBadge check={check} />
                             {fieldFlag ? <p className="mt-1 text-xs text-amber-900">{fieldFlag.message}</p> : null}
                           </td>
-                          <td className="p-2 whitespace-nowrap">{checkLabel(check)}</td>
+                          <td className="p-2 w-[5.5rem] max-w-[5.5rem]"><CheckLabel check={check} /></td>
                           <td className="p-2 min-w-[220px]">
                             <div className="space-y-2">
                               {pids.map((entry, pidIndex) => {
@@ -650,61 +881,27 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={38} minSize={24}>
               <div className="h-full flex flex-col border-l">
-                <div className="flex items-center gap-2 border-b px-3 py-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    aria-label="Zoom out"
-                    onClick={() => setZoom((value) => Math.max(0.5, Number((value - 0.25).toFixed(2))))}
-                  >
-                    <ZoomOut className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    aria-label="Zoom in"
-                    onClick={() => setZoom((value) => Math.min(3, Number((value + 0.25).toFixed(2))))}
-                  >
-                    <ZoomIn className="h-4 w-4" />
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={() => setZoom(1)}>
-                    Fit to width
-                  </Button>
-                  <span className="text-xs text-muted-foreground">{Math.round(zoom * 100)}%</span>
+                <div className="border-b px-3 py-2">
+                  <p className="text-sm font-medium">Check images</p>
+                  <p className="text-xs text-muted-foreground">Click an image to open it full-size.</p>
                 </div>
                 <div className="flex-1 overflow-auto p-3 space-y-4">
                   {selectedCheck ? (
                     <>
-                      <div>
-                        <p className="mb-2 text-sm font-medium">Front</p>
-                        {selectedCheck.front_image ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={selectedCheck.front_image}
-                            alt={`Front of check ${selectedCheck.check_index}`}
-                            className="w-full h-auto border rounded"
-                            style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
-                          />
-                        ) : (
-                          <p className="text-sm text-muted-foreground">No front image.</p>
-                        )}
-                      </div>
-                      <div>
-                        <p className="mb-2 text-sm font-medium">Back</p>
-                        {selectedCheck.back_image ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={selectedCheck.back_image}
-                            alt={`Back of check ${selectedCheck.check_index}`}
-                            className="w-full h-auto border rounded"
-                            style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
-                          />
-                        ) : (
-                          <p className="text-sm text-muted-foreground">No back was scanned for this check.</p>
-                        )}
-                      </div>
+                      <CheckThumb
+                        label="Front"
+                        src={selectedCheck.front_image}
+                        alt={`Front of check ${selectedCheck.check_index}`}
+                        emptyLabel="No front image."
+                        onOpen={setLightbox}
+                      />
+                      <CheckThumb
+                        label="Back"
+                        src={selectedCheck.back_image}
+                        alt={`Back of check ${selectedCheck.check_index}`}
+                        emptyLabel="No back was scanned for this check."
+                        onOpen={setLightbox}
+                      />
                     </>
                   ) : (
                     <p className="text-sm text-muted-foreground">Select a check to view its images.</p>
@@ -714,6 +911,14 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             </ResizablePanel>
           </ResizablePanelGroup>
         </div>
+
+        {lightbox ? (
+          <CheckImageLightbox
+            src={lightbox.src}
+            alt={lightbox.alt}
+            onClose={() => setLightbox(null)}
+          />
+        ) : null}
 
         <div className="sr-only" aria-live="polite">
           {liveMessage}

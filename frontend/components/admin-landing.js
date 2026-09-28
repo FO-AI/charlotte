@@ -22,8 +22,8 @@ const AdminLanding = () => {
   return (
     <section className="content-section">
       <div className="site-wrap">
-        <h1 className="text-navy text-4xl font-bold mb-3">Admin dashboard</h1>
-        <p className="mb-10 max-w-2xl">
+        <h1 className="text-navy text-4xl font-bold mb-3 text-center">Admin dashboard</h1>
+        <p className="mb-10 max-w-2xl mx-auto text-center">
           Select a department to open its tools and reports.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
