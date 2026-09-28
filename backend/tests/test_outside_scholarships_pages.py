@@ -12,6 +12,8 @@ import fitz
 import pytest
 from openpyxl import load_workbook
 
+from services.banking.outside_scholarships.nodes import PYMUPDF_LOCK
+
 FRONT = "front"
 BACK = "back"
 _ROUTE = "/api/banking/outside-scholarships"
@@ -43,7 +45,7 @@ class FakeDocumentIntelligence:
     def begin_analyze_document(self, model_id, request=None, **kwargs):
         self.calls += 1
         pdf_bytes = request.bytes_source if request is not None else kwargs["body"]
-        with fitz.open(stream=pdf_bytes, filetype="pdf") as document:
+        with PYMUPDF_LOCK, fitz.open(stream=pdf_bytes, filetype="pdf") as document:
             lines = [line for page in document for line in page.get_text().splitlines() if line.strip()]
         result = SimpleNamespace(
             pages=[SimpleNamespace(lines=[SimpleNamespace(content=line) for line in lines])],
@@ -225,5 +227,6 @@ def test_pages_beyond_one_batch_keep_pdf_page_numbers(client, override_auth, app
     response, llm, _ = _upload(client, app, sides)
 
     assert response.status_code == 200, response.text
-    assert llm.classified_pages == [list(range(1, 11)), [11, 12]]
+    # Batches are sent concurrently, so compare them independent of arrival order.
+    assert sorted(llm.classified_pages) == [list(range(1, 11)), [11, 12]]
     assert [pid for pid, _ in _excel_rows(response, tmp_path)] == [f"P{1000 + i:07d}" for i in range(1, 7)]
