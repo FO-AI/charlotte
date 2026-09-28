@@ -1,3 +1,4 @@
+import re
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import BytesIO
@@ -5,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from openpyxl import Workbook
 from openpyxl.styles import Font
+
+_PID_DIGIT_COUNT = 10
 
 
 class OutsideScholarshipsDataLoader:
@@ -42,6 +45,15 @@ class OutsideScholarshipsDataLoader:
         return value
 
     @staticmethod
+    def _ten_digit_pid(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        digits = re.sub(r"\D", "", str(value))
+        if len(digits) != _PID_DIGIT_COUNT:
+            return None
+        return digits
+
+    @staticmethod
     def _to_decimal_amount(value: Any) -> Decimal:
         if value is None:
             return Decimal("0")
@@ -67,14 +79,23 @@ class OutsideScholarshipsDataLoader:
             provider = check.get("provider") or ""
             scholarship_name = check.get("scholarship_name") or ""
 
-            pid_list = check.get("pid_list")
-            if not isinstance(pid_list, list) or not pid_list:
+            raw_pids = check.get("pid_list")
+            pid_list: List[str] = []
+            seen = set()
+            if isinstance(raw_pids, list):
+                for pid in raw_pids:
+                    normalized = self._ten_digit_pid(pid)
+                    if not normalized or normalized in seen:
+                        continue
+                    seen.add(normalized)
+                    pid_list.append(normalized)
+            if not pid_list:
                 pid_list = [""]
 
             for pid in pid_list:
                 rows.append(
                     [
-                        str(pid).strip() if pid is not None else "",
+                        pid,
                         amount_value,
                         name,
                         self.aid_year,

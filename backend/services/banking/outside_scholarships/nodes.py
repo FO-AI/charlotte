@@ -38,6 +38,7 @@ _REQUIRED_FIELDS = (
 )
 _EMPTY_MARKERS = {"", "null", "none", "n/a", "na", "unknown", "not found", "not provided"}
 
+_PID_DIGIT_COUNT = 10
 _PID_CONTEXT_CAPTURE_RE = re.compile(r"\bpid(?:s)?\b", re.IGNORECASE)
 _PID_TOKEN_RE = re.compile(r"[A-Z0-9-]{4,}", re.IGNORECASE)
 _PID_FALLBACK_RE = re.compile(r"\bP\d{6,10}\b", re.IGNORECASE)
@@ -84,11 +85,14 @@ def _normalize_check_number(value: Any) -> Optional[str]:
 
 
 def _normalize_pid(value: Any) -> Optional[str]:
+    """Keep student PIDs only. A PID is exactly 10 digits; drop approval numbers."""
     raw = _clean_optional(value)
     if raw is None:
         return None
-    normalized = re.sub(r"[^A-Za-z0-9-]", "", raw).upper().strip("-")
-    return normalized or None
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) != _PID_DIGIT_COUNT:
+        return None
+    return digits
 
 
 def _dedupe_pids(pid_values: Sequence[Any]) -> List[str]:

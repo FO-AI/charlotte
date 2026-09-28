@@ -9,7 +9,7 @@ You are given a first-pass candidate from Azure Document Intelligence:
 Instructions:
 - Verify every field against the images.
 - Correct any wrong first-pass values.
-- Extract all student IDs as `pid_list` (include every PID visible on any provided image).
+- Extract all student IDs as `pid_list`. A PID is exactly 10 digits. Include every 10-digit PID visible on any provided image. A check may have multiple PIDs. Do not include approval numbers, check numbers, or any other value that is not exactly 10 digits.
 - Return `amount` as a numeric string when possible (for example "1250.00").
 - `provider` means payer/remitter/check issuer.
 - `scholarship_name` can be null when absent.

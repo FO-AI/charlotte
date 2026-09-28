@@ -17,6 +17,11 @@ BACK = "back"
 _ROUTE = "/api/banking/outside-scholarships"
 _FIRST_DATA_ROW = 6
 _FIRST_CHECK_NUMBER = 1001
+_APPROVAL_NUMBER = "1380307"
+
+
+def _pid(check_number):
+    return f"{check_number:010d}"
 
 
 def _build_pdf(sides):
@@ -30,7 +35,8 @@ def _build_pdf(sides):
             page.insert_text((72, 72), f"Check No: {check_number}")
             page.insert_text((72, 100), f"Amount: ${(check_number - 1000) * 100}.00")
         else:
-            page.insert_text((72, 72), f"PID: P{check_number:07d}")
+            # Include a shorter approval number next to the PID, as real checks often do.
+            page.insert_text((72, 72), f"PID: {_pid(check_number)} {_APPROVAL_NUMBER}")
     return document.tobytes()
 
 
@@ -135,13 +141,13 @@ def _excel_rows(response, tmp_path):
         ),
         pytest.param(
             [FRONT, BACK, FRONT],
-            [("P0001001", 100.0), ("", 200.0)],
+            [(_pid(1001), 100.0), ("", 200.0)],
             {"1001": 2, "1002": 1},
             id="odd-page-count",
         ),
         pytest.param(
             [FRONT, BACK, FRONT, FRONT, BACK],
-            [("P0001001", 100.0), ("", 200.0), ("P0001003", 300.0)],
+            [(_pid(1001), 100.0), ("", 200.0), (_pid(1003), 300.0)],
             {"1001": 2, "1002": 1, "1003": 2},
             id="missing-back-in-middle",
         ),
@@ -153,7 +159,7 @@ def _excel_rows(response, tmp_path):
         ),
         pytest.param(
             [FRONT, BACK, FRONT, BACK],
-            [("P0001001", 100.0), ("P0001002", 200.0)],
+            [(_pid(1001), 100.0), (_pid(1002), 200.0)],
             {"1001": 2, "1002": 2},
             id="every-check-has-back",
         ),
@@ -216,7 +222,7 @@ def test_classifier_formatting_variations_are_accepted(client, override_auth, ap
     response, _, _ = _upload(client, app, sides, loosely_formatted_reply)
 
     assert response.status_code == 200, response.text
-    assert _excel_rows(response, tmp_path) == [("P0001001", 100.0), ("", 200.0)]
+    assert _excel_rows(response, tmp_path) == [(_pid(1001), 100.0), ("", 200.0)]
 
 
 def test_pages_beyond_one_batch_keep_pdf_page_numbers(client, override_auth, app, tmp_path):
@@ -226,4 +232,4 @@ def test_pages_beyond_one_batch_keep_pdf_page_numbers(client, override_auth, app
 
     assert response.status_code == 200, response.text
     assert llm.classified_pages == [list(range(1, 11)), [11, 12]]
-    assert [pid for pid, _ in _excel_rows(response, tmp_path)] == [f"P{1000 + i:07d}" for i in range(1, 7)]
+    assert [pid for pid, _ in _excel_rows(response, tmp_path)] == [_pid(1000 + i) for i in range(1, 7)]
