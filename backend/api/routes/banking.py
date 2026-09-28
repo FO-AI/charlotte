@@ -83,8 +83,13 @@ async def outside_scholarships_export(
     user: Dict = Depends(check_banking_or_admin_permissions),
     azure_client: AzureClient = Depends(get_azure_client),
     user_directory: GraphUserDirectory = Depends(get_graph_user_directory),
+    graph_access_token: str = Depends(get_bearer_token),
 ):
-    """Export reviewed outside-scholarship checks to Excel."""
+    """Export reviewed outside-scholarship checks to Excel.
+
+    Active Directory names are re-resolved on the server so the workbook does not
+    trust client-supplied directory results.
+    """
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="Invalid export payload.")
     reviewed_by = (
@@ -95,4 +100,8 @@ async def outside_scholarships_export(
         or ""
     )
     service = OutsideScholarshipService(azure_client, user_directory)
-    return service.export_reviewed(body, reviewed_by=str(reviewed_by))
+    return await service.export_reviewed(
+        body,
+        reviewed_by=str(reviewed_by),
+        graph_access_token=graph_access_token,
+    )

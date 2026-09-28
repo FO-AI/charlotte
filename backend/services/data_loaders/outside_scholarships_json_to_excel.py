@@ -74,7 +74,9 @@ class OutsideScholarshipsDataLoader:
         if not text:
             return Decimal("0")
 
-        cleaned = text.replace("$", "").replace(",", "")
+        # Match the review UI: strip currency, thousands separators, and internal spaces
+        # so values like "1 250.00" export as 1250.00 rather than quietly becoming $0.
+        cleaned = text.replace("$", "").replace(",", "").replace(" ", "")
         try:
             return Decimal(cleaned)
         except InvalidOperation:
@@ -86,38 +88,17 @@ class OutsideScholarshipsDataLoader:
             return ""
         return str(value).strip()
 
-    def _expand_rows(self, checks: List[Dict[str, Any]]) -> List[List[Any]]:
-        """Legacy path: extraction payload with pid_list + flat AD name map."""
-        rows: List[List[Any]] = []
+    @staticmethod
+    def _excel_safe_text(value: Any) -> str:
+        """Neutralize formula injection when a cell value starts with =, +, -, or @."""
+        text = OutsideScholarshipsDataLoader._text(value)
+        if text and text[0] in {"=", "+", "-", "@"}:
+            return f"'{text}"
+        return text
 
-        for check in checks:
-            amount_decimal = self._to_decimal_amount(check.get("amount"))
-            amount_value = float(amount_decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-
-            name = check.get("name") or ""
-            provider = check.get("provider") or ""
-            scholarship_name = check.get("scholarship_name") or ""
-
-            pid_list = check.get("pid_list")
-            if not isinstance(pid_list, list) or not pid_list:
-                pid_list = [""]
-
-            for pid in pid_list:
-                pid_text = str(pid).strip() if pid is not None else ""
-                rows.append(
-                    [
-                        pid_text,
-                        amount_value,
-                        name,
-                        self.active_directory_names.get(pid_text, ""),
-                        self.aid_year,
-                        self.aid_term,
-                        provider,
-                        scholarship_name,
-                    ]
-                )
-
-        return rows
+    @staticmethod
+    def _normalize_pid_digits(value: Any) -> str:
+        return "".join(ch for ch in str(value or "") if ch.isdigit())
 
     @staticmethod
     def _pid_entries(check: Dict[str, Any], key: str) -> List[Dict[str, Any]]:
@@ -176,9 +157,9 @@ class OutsideScholarshipsDataLoader:
 
             amount_decimal = self._to_decimal_amount(reviewed.get("amount"))
             amount_value = float(amount_decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-            name = reviewed.get("name") or ""
-            provider = reviewed.get("provider") or ""
-            scholarship_name = reviewed.get("scholarship_name") or ""
+            name = self._excel_safe_text(reviewed.get("name") or "")
+            provider = self._excel_safe_text(reviewed.get("provider") or "")
+            scholarship_name = self._excel_safe_text(reviewed.get("scholarship_name") or "")
 
             reviewed_pid_entries = self._pid_entries(reviewed, "pids")
             if not reviewed_pid_entries:
@@ -195,29 +176,38 @@ class OutsideScholarshipsDataLoader:
                 if isinstance(raw_list, list):
                     extracted_pid_entries = [{"pid": pid} for pid in raw_list]
 
-            extracted_pids = [self._text(entry.get("pid")) for entry in extracted_pid_entries]
-            reviewed_pids = [self._text(entry.get("pid")) for entry in reviewed_pid_entries]
+            extracted_pids = [
+                self._normalize_pid_digits(entry.get("pid")) or self._text(entry.get("pid"))
+                for entry in extracted_pid_entries
+            ]
+            reviewed_pids = [
+                self._normalize_pid_digits(entry.get("pid")) or self._text(entry.get("pid"))
+                for entry in reviewed_pid_entries
+            ]
 
             edited, extracted_values = self._audit_diff(extracted, reviewed, extracted_pids, reviewed_pids)
+            extracted_values = self._excel_safe_text(extracted_values)
 
             for entry in reviewed_pid_entries:
-                pid_text = self._text(entry.get("pid"))
-                ad = entry.get("active_directory") if isinstance(entry.get("active_directory"), dict) else None
-                ad_name = (
-                    _active_directory_display_name(ad)
-                    if ad is not None
-                    else self.active_directory_names.get(pid_text, "")
-                )
+                pid_text = self._normalize_pid_digits(entry.get("pid")) or self._text(entry.get("pid"))
+                # Prefer server-resolved AD names when provided (export path); ignore client AD.
+                if pid_text in self.active_directory_names:
+                    ad_name = self.active_directory_names[pid_text]
+                elif self.active_directory_names:
+                    ad_name = ""
+                else:
+                    ad = entry.get("active_directory") if isinstance(entry.get("active_directory"), dict) else None
+                    ad_name = _active_directory_display_name(ad)
                 row_edited = edited
                 # An added PID alone marks the row edited (already in extracted_values).
                 if pid_text and pid_text not in extracted_pids:
                     row_edited = True
                 rows.append(
                     [
-                        pid_text,
+                        self._excel_safe_text(pid_text),
                         amount_value,
                         name,
-                        ad_name,
+                        self._excel_safe_text(ad_name),
                         self.aid_year,
                         self.aid_term,
                         provider,
@@ -229,12 +219,6 @@ class OutsideScholarshipsDataLoader:
                 )
 
         return rows
-
-    def build_excel_bytes(self, extraction_payload: Dict[str, Any]) -> BytesIO:
-        checks_raw = extraction_payload.get("checks") if isinstance(extraction_payload, dict) else []
-        checks = [check for check in checks_raw if isinstance(check, dict)] if isinstance(checks_raw, list) else []
-        rows = self._expand_rows(checks)
-        return self._write_workbook(checks, rows, headers=self.HEADERS, include_reviewed_by=False)
 
     def build_reviewed_excel_bytes(self, review_payload: Dict[str, Any]) -> BytesIO:
         checks_raw = review_payload.get("checks") if isinstance(review_payload, dict) else []
@@ -272,7 +256,7 @@ class OutsideScholarshipsDataLoader:
 
         if include_reviewed_by:
             worksheet["A4"] = "Reviewed by"
-            worksheet["B4"] = self.reviewed_by
+            worksheet["B4"] = self._excel_safe_text(self.reviewed_by)
             worksheet["A4"].font = Font(bold=True)
             header_row_index = 6
             freeze_pane = "A7"

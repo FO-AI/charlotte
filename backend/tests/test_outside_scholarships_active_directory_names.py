@@ -195,7 +195,8 @@ def test_active_directory_lookup_endpoint(client, override_auth, app, bearer_tok
 def test_export_writes_reviewed_by_and_audit_columns(client, override_auth, app):
     from types import SimpleNamespace
 
-    from api.dependencies import get_azure_client
+    from api.dependencies import get_azure_client, get_graph_user_directory
+    from services.azure_services import GraphUserDirectory
 
     graph = FakeGraph({_JANE_PID: _JANE})
     response, _ = upload(client, app, [FRONT, BACK], back_pids={1001: _JANE_PID}, graph=graph)
@@ -213,17 +214,17 @@ def test_export_writes_reviewed_by_and_audit_columns(client, override_auth, app)
                     "name": "Payee 1001",
                     "provider": "Provider 1001",
                     "scholarship_name": "Scholarship 1001",
-                    "pids": [{"pid": _JANE_PID, "active_directory": {"status": "found", "name": "Doe, Jane"}}],
+                    "pids": [{"pid": _JANE_PID, "active_directory": {"status": "found", "name": "Spoofed, Name"}}],
                 },
                 "reviewed": {
-                    "amount": "150.00",
+                    "amount": "1 250.00",
                     "check_number": "1001",
-                    "name": "Payee 1001",
+                    "name": "=HYPERLINK(\"http://evil\")",
                     "provider": "Provider 1001",
                     "scholarship_name": "Scholarship 1001",
                     "pids": [
-                        {"pid": _JANE_PID, "active_directory": {"status": "found", "name": "Doe, Jane"}},
-                        {"pid": "730000099", "active_directory": {"status": "not_found", "name": None}},
+                        {"pid": _JANE_PID, "active_directory": {"status": "found", "name": "Spoofed, Name"}},
+                        {"pid": "730000099", "active_directory": {"status": "found", "name": "Also Spoofed"}},
                     ],
                 },
                 "verified": True,
@@ -231,6 +232,7 @@ def test_export_writes_reviewed_by_and_audit_columns(client, override_auth, app)
         ],
     }
     app.dependency_overrides[get_azure_client] = lambda: SimpleNamespace(llm=None)
+    app.dependency_overrides[get_graph_user_directory] = lambda: GraphUserDirectory(transport=graph.transport)
 
     export_response = client.post("/api/banking/outside-scholarships/export", json=export_body)
     assert export_response.status_code == 200, export_response.text
@@ -251,12 +253,15 @@ def test_export_writes_reviewed_by_and_audit_columns(client, override_auth, app)
     assert worksheet["A4"].value == "Reviewed by"
     rows = list(worksheet.iter_rows(min_row=REVIEW_FIRST_DATA_ROW, values_only=True))
     assert rows[0][0] == _JANE_PID
-    assert rows[0][1] == 150.0
+    assert rows[0][1] == 1250.0
+    assert rows[0][2] == "'=HYPERLINK(\"http://evil\")"
+    assert rows[0][3] == "Doe, Jane"
     assert rows[0][8] == "Yes"
     assert rows[0][9] == "Yes"
     assert "Amount: 100.00" in rows[0][10]
     assert "Added PID: 730000099" in rows[0][10]
     assert rows[1][0] == "730000099"
+    assert not rows[1][3]
 
 
 def test_mixed_upload_produces_reviewable_workbook_artifact(client, override_auth, app):
@@ -297,4 +302,5 @@ def test_mixed_upload_produces_reviewable_workbook_artifact(client, override_aut
         for pid, *_ in worksheet.iter_rows(min_row=REVIEW_FIRST_DATA_ROW, values_only=True)
     ]
     assert excel_pids == [_JANE_PID, "", "730009999", "730000004", _JANE_PID, "730000006"]
-    assert sorted(_all_requested_pids(graph)) == ["730000001", "730000004", "730000006", "730009999"]
+    # Upload + export each look up AD; compare the distinct PIDs asked of Graph.
+    assert sorted(set(_all_requested_pids(graph))) == ["730000001", "730000004", "730000006", "730009999"]

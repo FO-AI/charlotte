@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 
 from services.azure_services import AzureClient, GraphUserDirectory
 from services.banking.outside_scholarships.active_directory_names import (
+    active_directory_display_name,
     lookup_active_directory_names,
     lookup_pids,
 )
@@ -114,16 +115,35 @@ class OutsideScholarshipService:
         results = await lookup_pids(self.user_directory, pids, graph_access_token)
         return {"pids": [{"pid": pid, "active_directory": results[pid]} for pid in results]}
 
-    def export_reviewed(
+    async def export_reviewed(
         self,
         payload: Dict[str, Any],
         reviewed_by: str,
+        graph_access_token: str,
     ) -> StreamingResponse:
+        """Build Excel after re-looking up Active Directory names (do not trust the client)."""
+        reviewed_pids: List[str] = []
+        for check in payload.get("checks") or []:
+            if not isinstance(check, dict):
+                continue
+            reviewed = check.get("reviewed") if isinstance(check.get("reviewed"), dict) else {}
+            for entry in reviewed.get("pids") or []:
+                if isinstance(entry, dict) and entry.get("pid") is not None:
+                    reviewed_pids.append(str(entry.get("pid")))
+                elif entry is not None and str(entry).strip():
+                    reviewed_pids.append(str(entry))
+
+        ad_by_pid = await lookup_pids(self.user_directory, reviewed_pids, graph_access_token)
+        ad_name_by_pid = {
+            pid: active_directory_display_name(result) for pid, result in ad_by_pid.items()
+        }
+
         try:
             loader = OutsideScholarshipsDataLoader(
                 aid_year=payload.get("aid_year"),
                 aid_term=payload.get("aid_term"),
                 reviewed_by=reviewed_by,
+                active_directory_names=ad_name_by_pid,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -174,11 +194,12 @@ class OutsideScholarshipService:
                 pid_text = str(pid).strip() if pid is not None else ""
                 if not pid_text:
                     continue
+                pid_digits = "".join(ch for ch in pid_text if ch.isdigit())
                 pids.append(
                     {
-                        "pid": pid_text,
+                        "pid": pid_digits or pid_text,
                         "active_directory": ad_by_pid.get(
-                            pid_text, {"status": "not_found", "name": None}
+                            pid_digits or pid_text, {"status": "not_found", "name": None}
                         ),
                     }
                 )

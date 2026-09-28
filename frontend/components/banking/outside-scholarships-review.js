@@ -30,6 +30,7 @@ import {
   checkNeedsReview,
   checkStatus,
   isWellFormedPid,
+  normalizePidDigits,
   pidEntryFlag,
   summarizeReview,
 } from '@/components/banking/outside-scholarships-flags';
@@ -457,6 +458,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const lookupPid = useCallback(
     async (checkIndex, pidKey, pidValue) => {
       const trimmed = String(pidValue ?? '').trim();
+      const digits = normalizePidDigits(trimmed);
       const currentCheck = checksRef.current.find((check) => check.check_index === checkIndex);
       const currentEntry = (currentCheck?.pids || []).find((entry) => entry._key === pidKey);
       if (!currentEntry) return;
@@ -485,6 +487,31 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
         return;
       }
 
+      const currentDigits = normalizePidDigits(currentEntry.pid);
+      const adStatus = currentEntry.active_directory?.status;
+      // Skip re-lookup when the PID is unchanged and we already have a definitive AD result.
+      // Re-running can turn "found" into "lookup_failed" under throttling and block Export.
+      if (
+        digits === currentDigits &&
+        !currentEntry.lookingUp &&
+        (adStatus === 'found' || adStatus === 'not_found')
+      ) {
+        if (String(currentEntry.pid ?? '') !== digits) {
+          updateCheck(
+            checkIndex,
+            (check) => {
+              const pids = [...(check.pids || [])];
+              const idx = pids.findIndex((entry) => entry._key === pidKey);
+              if (idx < 0) return check;
+              pids[idx] = { ...pids[idx], pid: digits };
+              return { ...check, pids };
+            },
+            { clearVerified: false }
+          );
+        }
+        return;
+      }
+
       const seqKey = `${checkIndex}:${pidKey}`;
       const seq = (lookupSeqRef.current[seqKey] || 0) + 1;
       lookupSeqRef.current[seqKey] = seq;
@@ -496,16 +523,18 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
           const pids = [...(check.pids || [])];
           const idx = pids.findIndex((entry) => entry._key === pidKey);
           if (idx < 0) return check;
-          pids[idx] = { ...pids[idx], pid: trimmed, lookingUp: true };
+          pids[idx] = { ...pids[idx], pid: digits, lookingUp: true };
           return { ...check, pids };
         },
         { clearVerified: false }
       );
 
       try {
-        const result = await apiClient.lookupOutsideScholarshipActiveDirectoryNames([trimmed]);
+        const result = await apiClient.lookupOutsideScholarshipActiveDirectoryNames([digits]);
         if (lookupSeqRef.current[seqKey] !== seq) return;
-        const entry = (result.pids || []).find((item) => item.pid === trimmed);
+        const entry = (result.pids || []).find(
+          (item) => normalizePidDigits(item.pid) === digits || item.pid === digits
+        );
         const ad = entry?.active_directory || { status: 'not_found', name: null };
         updateCheck(
           checkIndex,
@@ -514,8 +543,8 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             const idx = pids.findIndex((item) => item._key === pidKey);
             if (idx < 0) return check;
             // Dropped or retargeted while in flight — do not resurrect or overwrite another PID.
-            if (String(pids[idx].pid ?? '').trim() !== trimmed) return check;
-            pids[idx] = { ...pids[idx], pid: trimmed, active_directory: ad, lookingUp: false };
+            if (normalizePidDigits(pids[idx].pid) !== digits) return check;
+            pids[idx] = { ...pids[idx], pid: digits, active_directory: ad, lookingUp: false };
             return { ...check, pids };
           },
           { clearVerified: false }
@@ -523,7 +552,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
         if (ad.status === 'found') {
           setLiveMessage(`Name found: ${ad.name}`);
         } else if (ad.status === 'not_found') {
-          setLiveMessage(`No Active Directory account has PID ${trimmed}`);
+          setLiveMessage(`No Active Directory account has PID ${digits}`);
         } else {
           setLiveMessage("Couldn't reach Active Directory.");
         }
@@ -535,10 +564,10 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             const pids = [...(check.pids || [])];
             const idx = pids.findIndex((item) => item._key === pidKey);
             if (idx < 0) return check;
-            if (String(pids[idx].pid ?? '').trim() !== trimmed) return check;
+            if (normalizePidDigits(pids[idx].pid) !== digits) return check;
             pids[idx] = {
               ...pids[idx],
-              pid: trimmed,
+              pid: digits,
               active_directory: { status: 'lookup_failed', name: null },
               lookingUp: false,
             };
