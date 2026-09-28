@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useRef, useState } from 'react';
 import { X, FileCheck, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { APIClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth/auth-context-msal';
+import OutsideScholarshipsReview from '@/components/banking/outside-scholarships-review';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
@@ -17,32 +18,41 @@ function formatFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function OutsideScholarshipsUploadModal({ isOpen, onClose }) {
+export default function OutsideScholarshipsUploadModal({ isOpen, onClose, returnFocusRef }) {
   const { getAuthHeaders } = useAuth();
-  const apiClient = new APIClient(getAuthHeaders);
+  const apiClientRef = useRef(null);
+  if (!apiClientRef.current) {
+    apiClientRef.current = new APIClient(getAuthHeaders);
+  }
+  const apiClient = apiClientRef.current;
   const defaultAidYear = String(new Date().getFullYear());
+  const [phase, setPhase] = useState('idle');
   const [selectedFile, setSelectedFile] = useState(null);
   const [aidYear, setAidYear] = useState(defaultAidYear);
   const [aidTerm, setAidTerm] = useState('F');
-  const [uploading, setUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  const [preview, setPreview] = useState(null);
   const fileInputRef = useRef(null);
+  const localTriggerRef = useRef(null);
+  const triggerRef = returnFocusRef || localTriggerRef;
+
+  const extracting = phase === 'extracting';
+  const reviewing = phase === 'review';
 
   const resetState = () => {
+    setPhase('idle');
     setSelectedFile(null);
     setAidYear(defaultAidYear);
     setAidTerm('F');
-    setUploading(false);
     setErrorMessage('');
-    setSuccessMessage('');
+    setPreview(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
   const handleClose = () => {
-    if (uploading) return;
+    if (extracting) return;
     resetState();
     onClose();
   };
@@ -50,7 +60,6 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose }) {
   const handleFileSelect = (files) => {
     if (!files || files.length === 0) return;
     setErrorMessage('');
-    setSuccessMessage('');
 
     const file = files[0];
     const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
@@ -70,7 +79,6 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose }) {
   const removeFile = () => {
     setSelectedFile(null);
     setErrorMessage('');
-    setSuccessMessage('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -82,9 +90,8 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose }) {
       return;
     }
 
-    setUploading(true);
+    setPhase('extracting');
     setErrorMessage('');
-    setSuccessMessage('');
 
     try {
       const sanitizedAidYear = (aidYear || '').trim();
@@ -100,31 +107,50 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose }) {
         aidTerm,
       });
 
-      if (result && result.blob) {
-        const url = window.URL.createObjectURL(result.blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = result.filename;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.URL.revokeObjectURL(url);
-        setSuccessMessage('Upload complete. Your Excel file has been downloaded.');
-      } else if (result && Array.isArray(result.checks)) {
-        setSuccessMessage(`Upload complete. Processed ${result.checks.length} check page(s).`);
-      } else {
-        setSuccessMessage('Upload complete.');
+      if (!result || !Array.isArray(result.checks)) {
+        throw new Error('Unexpected response from extraction.');
       }
+
+      setPreview({
+        ...result,
+        filename: selectedFile.name,
+      });
+      setPhase('review');
     } catch (error) {
       setErrorMessage(error.message || 'Upload failed. Please try again.');
-    } finally {
-      setUploading(false);
+      setPhase('error');
     }
   };
 
+  if (reviewing && preview) {
+    return (
+      <OutsideScholarshipsReview
+        preview={preview}
+        returnFocusRef={triggerRef}
+        onClose={() => {
+          resetState();
+          onClose();
+        }}
+      />
+    );
+  }
+
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-xl">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) handleClose();
+      }}
+    >
+      <DialogContent
+        className="sm:max-w-xl"
+        onInteractOutside={(event) => {
+          if (extracting) event.preventDefault();
+        }}
+        onEscapeKeyDown={(event) => {
+          if (extracting) event.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileCheck className="h-5 w-5" />
@@ -143,9 +169,10 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose }) {
                 Select a single PDF file to upload.
               </p>
               <Button
+                ref={triggerRef}
                 variant="outline"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
+                disabled={extracting}
               >
                 Choose PDF File
               </Button>
@@ -167,7 +194,7 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose }) {
                   <p className="text-sm font-medium truncate">{selectedFile.name}</p>
                   <p className="text-xs text-muted-foreground">{formatFileSize(selectedFile.size)}</p>
                 </div>
-                {!uploading && (
+                {!extracting && (
                   <Button variant="ghost" size="sm" onClick={removeFile}>
                     <X className="h-4 w-4" />
                   </Button>
@@ -185,8 +212,8 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose }) {
                 maxLength={4}
                 value={aidYear}
                 onChange={(e) => setAidYear(e.target.value)}
-                disabled={uploading}
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                disabled={extracting}
+                className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy"
                 placeholder="YYYY"
               />
             </div>
@@ -195,8 +222,8 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose }) {
               <select
                 value={aidTerm}
                 onChange={(e) => setAidTerm(e.target.value)}
-                disabled={uploading}
-                className="w-full rounded-md border px-3 py-2 text-sm bg-background"
+                disabled={extracting}
+                className="w-full rounded-md border px-3 py-2 text-sm bg-background focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy"
               >
                 <option value="F">F</option>
                 <option value="S">S</option>
@@ -209,20 +236,14 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose }) {
               <AlertDescription className="text-red-800">{errorMessage}</AlertDescription>
             </Alert>
           )}
-
-          {successMessage && (
-            <Alert className="border-green-200 bg-green-50">
-              <AlertDescription className="text-green-800">{successMessage}</AlertDescription>
-            </Alert>
-          )}
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={handleClose} disabled={uploading}>
-            Close
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose} disabled={extracting}>
+            Cancel
           </Button>
-          <Button onClick={handleUpload} disabled={uploading || !selectedFile}>
-            {uploading ? 'Uploading...' : 'Upload Check PDF'}
+          <Button onClick={handleUpload} disabled={extracting || !selectedFile}>
+            {extracting ? 'Extracting checks…' : 'Upload Check PDF'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -26,6 +26,9 @@ _FRONT_SIDE = "front"
 _BACK_SIDE = "back"
 _PAGE_SIDES = {_FRONT_SIDE, _BACK_SIDE}
 _PAGE_RENDER_DPI = 200
+# Preview JPEGs for the review UI: legible on screen, smaller than extraction PNGs.
+_PREVIEW_JPEG_DPI = 150
+_PREVIEW_JPEG_QUALITY = 75
 # Thumbnails are enough to tell a check's face from its reverse and keep requests small.
 _SIDE_CLASSIFICATION_DPI = 50
 # Conservative, to stay under the per-request image limit of vision chat models.
@@ -128,6 +131,14 @@ def _normalize_check_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
 def _render_page_png(document: fitz.Document, page_index: int, dpi: int) -> bytes:
     scale = dpi / 72
     return document.load_page(page_index).get_pixmap(matrix=fitz.Matrix(scale, scale)).tobytes("png")
+
+
+def _render_page_jpeg_data_url(document: fitz.Document, page_index: int, dpi: int) -> str:
+    scale = dpi / 72
+    pixmap = document.load_page(page_index).get_pixmap(matrix=fitz.Matrix(scale, scale))
+    jpeg_bytes = pixmap.tobytes("jpeg", jpg_quality=_PREVIEW_JPEG_QUALITY)
+    encoded = base64.b64encode(jpeg_bytes).decode("utf-8")
+    return f"data:image/jpeg;base64,{encoded}"
 
 
 def _png_image_part(png_bytes: bytes) -> Dict[str, Any]:
@@ -281,12 +292,21 @@ def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[st
                     pair_pdf_bytes = pair_document.tobytes()
                     pair_document.close()
 
-                paired_checks.append({"check_index": check_index, "pair_pdf_bytes": pair_pdf_bytes})
+                front_page = front_page_idx + 1
+                back_page = None if back_page_idx is None else back_page_idx + 1
+                paired_checks.append(
+                    {
+                        "check_index": check_index,
+                        "pair_pdf_bytes": pair_pdf_bytes,
+                        "front_page": front_page,
+                        "back_page": back_page,
+                    }
+                )
                 logger.info(
                     "outside_scholarships.pairing: check=%s front_page=%s back_page=%s",
                     check_index,
-                    front_page_idx + 1,
-                    None if back_page_idx is None else back_page_idx + 1,
+                    front_page,
+                    back_page,
                 )
                 check_index += 1
         finally:
@@ -305,6 +325,8 @@ def dispatch(state: OrchestratorState) -> List[Send]:
             {
                 "check_index": pair["check_index"],
                 "pair_pdf_bytes": pair["pair_pdf_bytes"],
+                "front_page": pair["front_page"],
+                "back_page": pair.get("back_page"),
             },
         )
         for pair in state.get("check_pairs", [])
@@ -316,6 +338,18 @@ def _render_check_images(pair_pdf_bytes: bytes) -> Tuple[bytes, Optional[bytes]]
     with PYMUPDF_LOCK, fitz.open(stream=pair_pdf_bytes, filetype="pdf") as pair_document:
         front_image = _render_page_png(pair_document, 0, _PAGE_RENDER_DPI)
         back_image = _render_page_png(pair_document, 1, _PAGE_RENDER_DPI) if pair_document.page_count > 1 else None
+    return front_image, back_image
+
+
+def _render_preview_images(pair_pdf_bytes: bytes) -> Tuple[str, Optional[str]]:
+    """JPEG data URLs of the check's front and optional back for the review UI."""
+    with PYMUPDF_LOCK, fitz.open(stream=pair_pdf_bytes, filetype="pdf") as pair_document:
+        front_image = _render_page_jpeg_data_url(pair_document, 0, _PREVIEW_JPEG_DPI)
+        back_image = (
+            _render_page_jpeg_data_url(pair_document, 1, _PREVIEW_JPEG_DPI)
+            if pair_document.page_count > 1
+            else None
+        )
     return front_image, back_image
 
 
@@ -378,12 +412,28 @@ def process_check_node(state: WorkerState, config: RunnableConfig) -> Dict[str, 
 
     Only check_results (an operator.add reducer) is written back to the shared graph state,
     so parallel workers never collide on a single-value key. The check index travels in
-    metadata so aggregate_node can restore check order.
+    metadata so aggregate_node can restore check order. Preview JPEGs and page numbers go
+    on the check itself for the review UI.
     """
     check_index = state.get("check_index")
-    front_image, back_image = _render_check_images(state["pair_pdf_bytes"])
+    front_page = state.get("front_page")
+    back_page = state.get("back_page")
+    pair_pdf_bytes = state["pair_pdf_bytes"]
+    front_image, back_image = _render_check_images(pair_pdf_bytes)
     check_fields = _extract_check_fields(check_index, front_image, back_image, config["configurable"]["llm"])
-    return {"check_results": [{**check_fields, "metadata": {"check_index": check_index}}]}
+    front_preview, back_preview = _render_preview_images(pair_pdf_bytes)
+    return {
+        "check_results": [
+            {
+                **check_fields,
+                "front_page": front_page,
+                "back_page": back_page,
+                "front_image": front_preview,
+                "back_image": back_preview,
+                "metadata": {"check_index": check_index},
+            }
+        ]
+    }
 
 
 def aggregate_node(state: OrchestratorState) -> Dict[str, Any]:

@@ -1,0 +1,28 @@
+{
+  "filename": "sample-checks.pdf",
+  "aid_year": "2026",
+  "aid_term": "F",
+  "checks": [
+    {
+      "check_index": 1,
+      "front_page": 1,
+      "back_page": null,
+      "front_image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAGfAP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAQUCf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQMBAT8Bf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQIBAT8Bf//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEABj8Cf//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAT8hf//Z",
+      "back_image": null,
+      "amount": "250.00",
+      "check_number": "1001",
+      "name": "Alex Example",
+      "provider": "",
+      "scholarship_name": "Merit Award",
+      "pids": [
+        {
+          "pid": "12345",
+          "active_directory": {
+            "status": "not_found",
+            "name": null
+          }
+        }
+      ]
+    }
+  ]
+}

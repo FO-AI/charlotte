@@ -8,6 +8,7 @@
 
 # testing
 /frontend/coverage
+/frontend/e2e/artifacts/
 /backend/tests/artifacts/
 
 # next.js
