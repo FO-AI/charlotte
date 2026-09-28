@@ -14,6 +14,11 @@ from config import get_logger
 
 logger = get_logger(__name__)
 
+# Checks processed at once per upload; also bounds concurrent side-classification calls.
+# Without it the graph's thread pool defaults to CPUs + 4 workers: 6 on a 2-vCPU App Service
+# instance. Raise it only if the Azure OpenAI deployment's quota allows more vision calls at once.
+MAX_CONCURRENT_CHECKS = 16
+
 
 class OutsideScholarshipService:
     def __init__(self, azure_client: AzureClient, user_directory: GraphUserDirectory):
@@ -64,6 +69,7 @@ class OutsideScholarshipService:
                 "final_payload": {},
             }
             config = {
+                "max_concurrency": MAX_CONCURRENT_CHECKS,
                 "configurable": {
                     "llm": self.azure_client.llm,
                     "document_intelligence_client": di_client,
@@ -106,6 +112,7 @@ class OutsideScholarshipService:
             "final_payload": {},
         }
         config = {
+            "max_concurrency": MAX_CONCURRENT_CHECKS,
             "configurable": {
                 "llm": self.azure_client.llm,
                 "document_intelligence_client": di_client,

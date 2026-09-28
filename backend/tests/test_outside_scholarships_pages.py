@@ -11,6 +11,107 @@ import pytest
 from openpyxl import load_workbook
 
 from outside_scholarships_fakes import BACK, FIRST_DATA_ROW, FRONT, upload
+from services.banking.outside_scholarships.nodes import PYMUPDF_LOCK
+
+FRONT = "front"
+BACK = "back"
+_ROUTE = "/api/banking/outside-scholarships"
+_FIRST_DATA_ROW = 6
+_FIRST_CHECK_NUMBER = 1001
+
+
+def _build_pdf(sides):
+    """One page per side. A back carries the PID of the check whose front precedes it."""
+    document = fitz.open()
+    check_number = _FIRST_CHECK_NUMBER - 1
+    for side in sides:
+        page = document.new_page()
+        if side == FRONT:
+            check_number += 1
+            page.insert_text((72, 72), f"Check No: {check_number}")
+            page.insert_text((72, 100), f"Amount: ${(check_number - 1000) * 100}.00")
+        else:
+            page.insert_text((72, 72), f"PID: P{check_number:07d}")
+    return document.tobytes()
+
+
+class FakeDocumentIntelligence:
+    """Returns the text written on each page of the check PDF, like DI OCR would."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def begin_analyze_document(self, model_id, request=None, **kwargs):
+        self.calls += 1
+        pdf_bytes = request.bytes_source if request is not None else kwargs["body"]
+        with PYMUPDF_LOCK, fitz.open(stream=pdf_bytes, filetype="pdf") as document:
+            lines = [line for page in document for line in page.get_text().splitlines() if line.strip()]
+        result = SimpleNamespace(
+            pages=[SimpleNamespace(lines=[SimpleNamespace(content=line) for line in lines])],
+            content="\n".join(lines),
+            key_value_pairs=[],
+        )
+        return SimpleNamespace(result=lambda: result)
+
+
+class FakeLLM:
+    """Scripted stand-in for the Azure OpenAI client.
+
+    Side-classification requests label each image with a "Page N" text part; the fake
+    answers from the scripted sides (or `classify_reply`). Verification requests echo
+    the DI candidate back and record how many images each check number received.
+    Workers run concurrently, so image counts are keyed by check number, not call order.
+    """
+
+    def __init__(self, sides, classify_reply=None):
+        self.sides = sides
+        self.classify_reply = classify_reply or self._scripted_reply
+        self.classified_pages = []
+        self.verify_image_counts = {}
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _scripted_reply(self, pages):
+        return json.dumps({"pages": [{"page": page, "side": self.sides[page - 1]} for page in pages]})
+
+    def _create(self, model, messages, response_format):
+        content = messages[0]["content"]
+        page_labels = [part["text"] for part in content[1:] if part["type"] == "text"]
+        if page_labels:
+            pages = [int(label.removeprefix("Page ")) for label in page_labels]
+            self.classified_pages.append(pages)
+            return self._reply(self.classify_reply(pages))
+
+        di_candidate_line = next(
+            line for line in content[0]["text"].splitlines() if line.startswith('{"pid_list"')
+        )
+        di_candidate = json.loads(di_candidate_line)
+        image_count = sum(1 for part in content if part["type"] == "image_url")
+        self.verify_image_counts[di_candidate["check_number"]] = image_count
+        return self._reply(di_candidate_line)
+
+    @staticmethod
+    def _reply(text):
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
+
+
+def _upload(client, app, sides, classify_reply=None):
+    from api.dependencies import get_azure_client
+
+    llm = FakeLLM(sides, classify_reply)
+    document_intelligence = FakeDocumentIntelligence()
+    azure_client = SimpleNamespace(
+        llm=llm,
+        get_di=lambda: document_intelligence,
+        di_model_id="prebuilt-check.us",
+    )
+    app.dependency_overrides[get_azure_client] = lambda: azure_client
+
+    response = client.post(
+        _ROUTE,
+        files={"files": ("checks.pdf", _build_pdf(sides), "application/pdf")},
+        data={"aid_term": "F"},
+    )
+    return response, llm, document_intelligence
 
 
 def _excel_rows(response, tmp_path):
@@ -125,5 +226,6 @@ def test_pages_beyond_one_batch_keep_pdf_page_numbers(client, override_auth, app
     response, llm, _ = upload(client, app, sides)
 
     assert response.status_code == 200, response.text
-    assert llm.classified_pages == [list(range(1, 11)), [11, 12]]
+    # Batches are sent concurrently, so compare them independent of arrival order.
+    assert sorted(llm.classified_pages) == [list(range(1, 11)), [11, 12]]
     assert [pid for pid, _ in _excel_rows(response, tmp_path)] == [f"P{1000 + i:07d}" for i in range(1, 7)]
