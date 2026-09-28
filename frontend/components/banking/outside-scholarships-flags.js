@@ -23,12 +23,14 @@ export function pidEntryFlag(entry) {
   if (!pid) {
     return {
       type: 'pid_missing',
+      shortLabel: 'No PID',
       message: 'No PID on this check. Enter it from the check image, or mark the check verified.',
     };
   }
   if (!isWellFormedPid(pid)) {
     return {
       type: 'pid_malformed',
+      shortLabel: 'Bad PID',
       message: 'PIDs are 9 digits. Check the image for a cut-off or misread digit.',
     };
   }
@@ -36,12 +38,14 @@ export function pidEntryFlag(entry) {
   if (status === 'lookup_failed') {
     return {
       type: 'ad_lookup_failed',
+      shortLabel: 'AD unreachable',
       message: "Couldn't reach Active Directory.",
     };
   }
   if (status === 'not_found') {
     return {
       type: 'no_ad_match',
+      shortLabel: 'No AD match',
       message: 'No Active Directory account has this PID.',
     };
   }
@@ -57,17 +61,27 @@ function isValidAmount(value) {
 }
 
 /**
- * Check-level missing required fields flag, or null.
+ * Which required scalar fields are missing/invalid on a check.
  */
-export function checkFieldFlag(check) {
+export function missingRequiredFields(check) {
   const missing = [];
   if (!isValidAmount(check?.amount)) missing.push('amount');
   if (!String(check?.check_number ?? '').trim()) missing.push('check number');
   if (!String(check?.provider ?? '').trim()) missing.push('provider');
+  return missing;
+}
+
+/**
+ * Check-level missing required fields flag, or null.
+ */
+export function checkFieldFlag(check) {
+  const missing = missingRequiredFields(check);
   if (!missing.length) return null;
   return {
     type: 'missing_required',
+    shortLabel: 'Missing fields',
     message: `Missing: ${missing.join(', ')}.`,
+    missing,
   };
 }
 
@@ -82,6 +96,37 @@ export function checkStatus(check) {
   if (check?.verified) return { key: 'verified', label: 'Verified' };
   if (checkNeedsReview(check)) return { key: 'needs_review', label: 'Needs review' };
   return { key: 'ok', label: 'OK' };
+}
+
+/**
+ * Short issue labels for the selected-check issue strip (deduped, stable order).
+ */
+export function checkIssueShortLabels(check) {
+  if (!check || check.verified || !checkNeedsReview(check)) return [];
+  const labels = [];
+  const seen = new Set();
+  const push = (label) => {
+    if (!label || seen.has(label)) return;
+    seen.add(label);
+    labels.push(label);
+  };
+
+  const fieldFlag = checkFieldFlag(check);
+  if (fieldFlag) {
+    for (const field of fieldFlag.missing || []) {
+      if (field === 'amount') push('Missing amount');
+      else if (field === 'check number') push('Missing check number');
+      else if (field === 'provider') push('Missing provider');
+      else push(fieldFlag.shortLabel);
+    }
+  }
+
+  const pids = Array.isArray(check.pids) && check.pids.length ? check.pids : [{ pid: '' }];
+  for (const entry of pids) {
+    const flag = pidEntryFlag(entry);
+    if (flag) push(flag.shortLabel);
+  }
+  return labels;
 }
 
 export function summarizeReview(checks) {

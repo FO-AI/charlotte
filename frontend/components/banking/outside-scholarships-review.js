@@ -26,17 +26,21 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { APIClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth/auth-context-msal';
 import {
-  checkFieldFlag,
+  checkIssueShortLabels,
   checkNeedsReview,
   checkStatus,
   isWellFormedPid,
+  missingRequiredFields,
   normalizePidDigits,
   pidEntryFlag,
   summarizeReview,
 } from '@/components/banking/outside-scholarships-flags';
 
 const FOCUS_INPUT =
-  'w-full rounded-md border px-2 py-1.5 text-sm focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy';
+  'w-full rounded-md border px-3 py-2 text-sm focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy';
+
+const ERROR_INPUT =
+  'border-red-500 bg-red-50/40 focus-visible:outline-red-700';
 
 const LIGHTBOX_MIN_ZOOM = 1;
 const LIGHTBOX_MAX_ZOOM = 4;
@@ -237,8 +241,8 @@ function CheckImageLightbox({ src, alt, onClose }) {
 function CheckThumb({ src, alt, label, emptyLabel, onOpen }) {
   if (!src) {
     return (
-      <div>
-        <p className="mb-2 text-sm font-medium">{label}</p>
+      <div className="rounded border bg-muted/10 p-3">
+        <p className="mb-1 text-sm font-medium">{label}</p>
         <p className="text-sm text-muted-foreground">{emptyLabel}</p>
       </div>
     );
@@ -254,24 +258,11 @@ function CheckThumb({ src, alt, label, emptyLabel, onOpen }) {
         aria-label={`Enlarge ${alt}`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt={alt} className="w-full h-auto" />
+        <img src={src} alt={alt} className="w-full h-auto max-h-48 object-contain bg-white" />
         <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/55 px-2 py-1.5 text-xs text-white opacity-90 group-hover:opacity-100">
           Click to enlarge · double-click zooms
         </span>
       </button>
-    </div>
-  );
-}
-
-function CheckLabel({ check }) {
-  const index = check.check_index ?? '?';
-  const pages = check.back_page
-    ? `Pages ${check.front_page}–${check.back_page}`
-    : `Page ${check.front_page}, no back`;
-  return (
-    <div className="leading-tight">
-      <div className="font-medium">Check {index}</div>
-      <div className="text-xs text-muted-foreground whitespace-normal">{pages}</div>
     </div>
   );
 }
@@ -289,13 +280,12 @@ function blankPidEntry() {
 function cloneChecks(checks) {
   return (checks || []).map((check) => ({
     ...check,
-    pids: (checksPidsWithKeys(check.pids)),
+    pids: checksPidsWithKeys(check.pids),
     verified: false,
     _editedFields: {},
   }));
 }
 
-// A check with no PIDs stores one blank entry, so its input keeps the same key across renders.
 function checksPidsWithKeys(pids) {
   if (!pids?.length) return [blankPidEntry()];
   return pids.map((entry) => {
@@ -316,29 +306,57 @@ function checksPidsWithKeys(pids) {
   });
 }
 
-function StatusBadge({ check }) {
+function pageHint(check) {
+  if (check.back_page) return `pp. ${check.front_page}–${check.back_page}`;
+  return `p. ${check.front_page}`;
+}
+
+function StatusListIcon({ check }) {
   const status = checkStatus(check);
   if (status.key === 'needs_review') {
     return (
-      <Badge variant="warning" className="gap-1">
-        <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
-        Needs review
-      </Badge>
+      <span className="inline-flex shrink-0 text-red-600" title="Needs review">
+        <AlertCircle className="h-4 w-4" aria-hidden="true" />
+        <span className="sr-only">Needs review</span>
+      </span>
     );
   }
   if (status.key === 'verified') {
     return (
-      <Badge variant="success" className="gap-1">
-        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-        Verified
-      </Badge>
+      <span className="inline-flex shrink-0 text-emerald-600" title="Verified">
+        <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+        <span className="sr-only">Verified</span>
+      </span>
     );
   }
   return (
-    <Badge variant="secondary" className="gap-1">
-      <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-      OK
-    </Badge>
+    <span className="inline-flex shrink-0 text-emerald-600/80" title="OK">
+      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+      <span className="sr-only">OK</span>
+    </span>
+  );
+}
+
+function FlagChip({ flag, onRetry }) {
+  if (!flag) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="danger" className="gap-1 font-medium">
+            <AlertCircle className="h-3 w-3" aria-hidden="true" />
+            {flag.shortLabel}
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent>{flag.message}</TooltipContent>
+      </Tooltip>
+      {flag.type === 'ad_lookup_failed' && onRetry ? (
+        <Button type="button" size="sm" variant="outline" onClick={onRetry} aria-label="Retry lookup">
+          <RotateCcw className="h-3.5 w-3.5" />
+          Retry
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -351,6 +369,15 @@ function EditedMarker({ show, original }) {
       </TooltipTrigger>
       <TooltipContent>Extracted: {original || '(blank)'}</TooltipContent>
     </Tooltip>
+  );
+}
+
+function FieldLabel({ children, invalid }) {
+  return (
+    <span className="mb-1 flex items-center gap-1 text-sm font-medium">
+      {children}
+      {invalid ? <AlertCircle className="h-3.5 w-3.5 text-red-600" aria-hidden="true" /> : null}
+    </span>
   );
 }
 
@@ -368,8 +395,15 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   checksRef.current = checks;
   const [aidYear, setAidYear] = useState(preview?.aid_year || String(new Date().getFullYear()));
   const [aidTerm, setAidTerm] = useState(preview?.aid_term || 'F');
-  const [filter, setFilter] = useState('all');
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [filter, setFilter] = useState(() => {
+    const initial = cloneChecks(preview?.checks || []);
+    return summarizeReview(initial).needsReview > 0 ? 'needs_review' : 'all';
+  });
+  const [selectedIndex, setSelectedIndex] = useState(() => {
+    const initial = cloneChecks(preview?.checks || []);
+    const firstNeeding = initial.findIndex((check) => checkNeedsReview(check));
+    return firstNeeding >= 0 ? firstNeeding : 0;
+  });
   const [lightbox, setLightbox] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -378,11 +412,11 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const [dirty, setDirty] = useState(false);
   const lookupSeqRef = useRef({});
   const rowRefs = useRef({});
+  const prevNeedsReviewRef = useRef(null);
 
   const summary = useMemo(() => summarizeReview(checks), [checks]);
   const selectedCheck = checks[selectedIndex] || checks[0] || null;
   const selectedCheckId = selectedCheck?.check_index;
-  // Keep the focused row visible under "Needs review" so edits don't yank the row away mid-type.
   const visibleChecks = useMemo(() => {
     if (filter === 'needs_review') {
       return checks.filter(
@@ -391,6 +425,17 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     }
     return checks;
   }, [checks, filter, selectedCheckId]);
+
+  const issueLabels = useMemo(
+    () => (selectedCheck ? checkIssueShortLabels(selectedCheck) : []),
+    [selectedCheck]
+  );
+  const missingFields = useMemo(
+    () => (selectedCheck && !selectedCheck.verified ? missingRequiredFields(selectedCheck) : []),
+    [selectedCheck]
+  );
+  const originalSelected =
+    extractedRef.current.find((item) => item.check_index === selectedCheckId) || {};
 
   useEffect(() => {
     const onBeforeUnload = (event) => {
@@ -459,6 +504,51 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     [clearVerifiedOnEdit, markDirty]
   );
 
+  const selectCheckByAbsoluteIndex = useCallback((index) => {
+    setSelectedIndex(index);
+    const check = checksRef.current[index];
+    if (check) {
+      rowRefs.current[check.check_index]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, []);
+
+  const goToNextNeedingReview = useCallback(() => {
+    const list = checksRef.current;
+    const start = selectedIndex;
+    for (let offset = 1; offset <= list.length; offset += 1) {
+      const index = (start + offset) % list.length;
+      if (checkNeedsReview(list[index])) {
+        selectCheckByAbsoluteIndex(index);
+        return;
+      }
+    }
+  }, [selectCheckByAbsoluteIndex, selectedIndex]);
+
+  // Auto-advance when the selected check stops needing review.
+  useEffect(() => {
+    if (!selectedCheck) {
+      prevNeedsReviewRef.current = null;
+      return;
+    }
+    const needs = checkNeedsReview(selectedCheck);
+    if (prevNeedsReviewRef.current === true && needs === false) {
+      const start = selectedIndex;
+      let advanced = false;
+      for (let offset = 1; offset <= checks.length; offset += 1) {
+        const index = (start + offset) % checks.length;
+        if (checkNeedsReview(checks[index])) {
+          selectCheckByAbsoluteIndex(index);
+          advanced = true;
+          break;
+        }
+      }
+      if (!advanced) {
+        setLiveMessage('All checks reviewed. You can export Excel.');
+      }
+    }
+    prevNeedsReviewRef.current = needs;
+  }, [checks, selectedCheck, selectedIndex, selectCheckByAbsoluteIndex]);
+
   const lookupPid = useCallback(
     async (checkIndex, pidKey, pidValue) => {
       const trimmed = String(pidValue ?? '').trim();
@@ -473,7 +563,6 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
           !currentEntry.lookingUp &&
           (currentEntry.active_directory?.status === 'not_found' || !currentEntry.active_directory) &&
           !currentEntry.active_directory?.name;
-        // Blur on empty/malformed with no real change must not clear Verified / disable Export.
         if (samePid && alreadyClear) return;
 
         updateCheck(checkIndex, (check) => {
@@ -493,9 +582,6 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
 
       const currentDigits = normalizePidDigits(currentEntry.pid);
       const adStatus = currentEntry.active_directory?.status;
-      // Skip re-lookup only when this exact PID was already looked up successfully
-      // (found/not_found). Do not skip after onChange clears AD to a blank not_found —
-      // that would leave a newly typed PID without a name.
       if (
         digits === currentDigits &&
         currentEntry._lookedUpFor === digits &&
@@ -522,7 +608,6 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
       const seq = (lookupSeqRef.current[seqKey] || 0) + 1;
       lookupSeqRef.current[seqKey] = seq;
 
-      // Lookup status updates are not field edits — do not clear verified.
       updateCheck(
         checkIndex,
         (check) => {
@@ -548,7 +633,6 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             const pids = [...(check.pids || [])];
             const idx = pids.findIndex((item) => item._key === pidKey);
             if (idx < 0) return check;
-            // Dropped or retargeted while in flight — do not resurrect or overwrite another PID.
             if (normalizePidDigits(pids[idx].pid) !== digits) return check;
             pids[idx] = {
               ...pids[idx],
@@ -593,18 +677,6 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     },
     [apiClient, updateCheck]
   );
-
-  const goToNextNeedingReview = () => {
-    const start = selectedIndex;
-    for (let offset = 1; offset <= checks.length; offset += 1) {
-      const index = (start + offset) % checks.length;
-      if (checkNeedsReview(checks[index])) {
-        setSelectedIndex(index);
-        rowRefs.current[checks[index].check_index]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        return;
-      }
-    }
-  };
 
   const buildExportPayload = () => {
     const extracted = extractedRef.current;
@@ -669,6 +741,22 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     }
   };
 
+  const toggleVerified = () => {
+    if (!selectedCheck) return;
+    setChecks((prev) =>
+      prev.map((item) =>
+        item.check_index === selectedCheck.check_index
+          ? { ...item, verified: !item.verified }
+          : item
+      )
+    );
+    markDirty();
+  };
+
+  const amountInvalid = missingFields.includes('amount');
+  const checkNumberInvalid = missingFields.includes('check number');
+  const providerInvalid = missingFields.includes('provider');
+
   return (
     <TooltipProvider>
       <div
@@ -708,10 +796,29 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                   <option value="S">S</option>
                 </select>
               </label>
-              <p className="text-sm text-muted-foreground pb-2">
-                {summary.checkCount} checks · {summary.pidCount} PIDs · $
-                {summary.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ·{' '}
-                <span className="font-medium text-foreground">{summary.needsReview} checks need review</span>
+              <p className="text-sm pb-2 flex items-center gap-1.5">
+                {summary.needsReview > 0 ? (
+                  <>
+                    <AlertCircle className="h-4 w-4 text-red-600 shrink-0" aria-hidden="true" />
+                    <span className="font-medium text-red-950">
+                      {summary.needsReview} of {summary.checkCount} left
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-hidden="true" />
+                    <span className="font-medium text-foreground">
+                      0 of {summary.checkCount} left
+                    </span>
+                  </>
+                )}
+                <span className="text-muted-foreground">
+                  · {summary.pidCount} PIDs · $
+                  {summary.totalAmount.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
               </p>
             </div>
           </div>
@@ -735,7 +842,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
               </Button>
             </div>
             <Button type="button" variant="outline" size="sm" onClick={goToNextNeedingReview}>
-              Next check needing review
+              Next issue
               <ChevronDown className="h-4 w-4" aria-hidden="true" />
             </Button>
             <div className="flex items-center gap-2">
@@ -751,7 +858,9 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                   {exporting ? 'Exporting…' : 'Export Excel'}
                 </Button>
                 {summary.needsReview > 0 ? (
-                  <span className="text-xs text-muted-foreground">{summary.needsReview} checks need review</span>
+                  <span className="text-xs text-muted-foreground">
+                    {summary.needsReview} of {summary.checkCount} left
+                  </span>
                 ) : null}
               </div>
             </div>
@@ -775,210 +884,72 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
 
         <div className="flex-1 min-h-0">
           <ResizablePanelGroup direction="horizontal" className="h-full">
-            <ResizablePanel defaultSize={62} minSize={40}>
-              <div className="h-full overflow-auto p-4">
-                <table className="w-full min-w-[960px] border-collapse text-sm">
-                  <thead className="sticky top-0 bg-background z-10">
-                    <tr className="border-b text-left">
-                      <th className="p-2 font-medium">Status</th>
-                      <th className="p-2 font-medium">Check</th>
-                      <th className="p-2 font-medium">PIDs</th>
-                      <th className="p-2 font-medium">Payee name</th>
-                      <th className="p-2 font-medium">Amount</th>
-                      <th className="p-2 font-medium">Check number</th>
-                      <th className="p-2 font-medium">Provider</th>
-                      <th className="p-2 font-medium">Scholarship name</th>
-                      <th className="p-2 font-medium">Verified</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleChecks.map((check) => {
-                      const absoluteIndex = checks.findIndex((item) => item.check_index === check.check_index);
-                      const original = extractedRef.current.find((item) => item.check_index === check.check_index) || {};
-                      const fieldFlag = checkFieldFlag(check);
-                      const selected = selectedCheck?.check_index === check.check_index;
-                      return (
-                        <tr
-                          key={check.check_index}
+            <ResizablePanel defaultSize={28} minSize={20} className="min-w-[12rem]">
+              <div className="h-full overflow-auto border-r">
+                <ul className="divide-y" role="listbox" aria-label="Checks">
+                  {visibleChecks.map((check) => {
+                    const absoluteIndex = checks.findIndex(
+                      (item) => item.check_index === check.check_index
+                    );
+                    const selected = selectedCheckId === check.check_index;
+                    const status = checkStatus(check);
+                    return (
+                      <li key={check.check_index}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
                           ref={(node) => {
                             rowRefs.current[check.check_index] = node;
                           }}
-                          className={`border-b align-top ${selected ? 'bg-[rgba(75,156,211,0.08)]' : ''}`}
-                          onFocusCapture={() => setSelectedIndex(absoluteIndex)}
-                          onClick={() => setSelectedIndex(absoluteIndex)}
+                          className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-[-3px] focus-visible:outline-navy ${
+                            selected
+                              ? 'bg-[rgba(75,156,211,0.14)] border-l-4 border-l-navy'
+                              : 'border-l-4 border-l-transparent hover:bg-muted/40'
+                          }`}
+                          onClick={() => selectCheckByAbsoluteIndex(absoluteIndex)}
                         >
-                          <td className="p-2">
-                            <StatusBadge check={check} />
-                            {fieldFlag ? <p className="mt-1 text-xs text-amber-900">{fieldFlag.message}</p> : null}
-                          </td>
-                          <td className="p-2 w-[5.5rem] max-w-[5.5rem]"><CheckLabel check={check} /></td>
-                          <td className="p-2 min-w-[220px]">
-                            <div className="space-y-2">
-                              {check.pids.map((entry, pidIndex) => {
-                                const flag = pidEntryFlag(entry);
-                                const extractedPid = (original.pids || [])[pidIndex]?.pid;
-                                const pidKey = entry._key;
-                                return (
-                                  <div key={pidKey} className="rounded border p-2 space-y-1">
-                                    <div className="flex items-center gap-2">
-                                      <label className="sr-only" htmlFor={`pid-${pidKey}`}>
-                                        PID for check {check.check_index}
-                                      </label>
-                                      <input
-                                        id={`pid-${pidKey}`}
-                                        className={FOCUS_INPUT}
-                                        value={entry.pid ?? ''}
-                                        onChange={(event) => {
-                                          const value = event.target.value;
-                                          updateCheck(check.check_index, (current) => {
-                                            const next = [...current.pids];
-                                            const idx = next.findIndex((item) => item._key === pidKey);
-                                            if (idx < 0) return current;
-                                            // Clear stale AD name as soon as the PID changes.
-                                            next[idx] = {
-                                              ...next[idx],
-                                              pid: value,
-                                              active_directory: { status: 'not_found', name: null },
-                                              lookingUp: false,
-                                              _lookedUpFor: undefined,
-                                            };
-                                            return { ...current, pids: next };
-                                          });
-                                        }}
-                                        onBlur={(event) =>
-                                          lookupPid(check.check_index, pidKey, event.target.value)
-                                        }
-                                        onKeyDown={(event) => {
-                                          if (event.key === 'Enter') {
-                                            event.preventDefault();
-                                            lookupPid(check.check_index, pidKey, event.currentTarget.value);
-                                          }
-                                        }}
-                                      />
-                                      <EditedMarker show={String(entry.pid ?? '') !== String(extractedPid ?? '')} original={extractedPid} />
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        aria-label={`Remove PID ${pidIndex + 1} from check ${check.check_index}`}
-                                        onClick={() => {
-                                          updateCheck(check.check_index, (current) => {
-                                            const next = current.pids.filter((item) => item._key !== pidKey);
-                                            return { ...current, pids: next.length ? next : [blankPidEntry()] };
-                                          });
-                                        }}
-                                      >
-                                        <Minus className="h-4 w-4" />
-                                      </Button>
-                                    </div>
-                                    <p className="text-xs text-muted-foreground min-h-[1rem]">
-                                      {entry.lookingUp
-                                        ? 'Looking up…'
-                                        : entry.active_directory?.status === 'found'
-                                          ? entry.active_directory.name
-                                          : ''}
-                                    </p>
-                                    {flag ? (
-                                      <div className="flex items-center gap-2 text-xs text-amber-900">
-                                        <span>{flag.message}</span>
-                                        {flag.type === 'ad_lookup_failed' ? (
-                                          <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            aria-label={`Retry lookup for PID ${entry.pid || ''}`}
-                                            onClick={() => lookupPid(check.check_index, pidKey, entry.pid)}
-                                          >
-                                            <RotateCcw className="h-3.5 w-3.5" />
-                                            Retry lookup
-                                          </Button>
-                                        ) : null}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                );
-                              })}
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  updateCheck(check.check_index, (current) => ({
-                                    ...current,
-                                    pids: [...current.pids, blankPidEntry()],
-                                  }));
-                                }}
-                              >
-                                <Plus className="h-4 w-4" />
-                                Add PID
-                              </Button>
-                            </div>
-                          </td>
-                          {[
-                            ['name', 'Payee name'],
-                            ['amount', 'Amount'],
-                            ['check_number', 'Check number'],
-                            ['provider', 'Provider'],
-                            ['scholarship_name', 'Scholarship name'],
-                          ].map(([field]) => (
-                            <td key={field} className="p-2 min-w-[120px]">
-                              <div className="flex items-center gap-1">
-                                <input
-                                  className={FOCUS_INPUT}
-                                  aria-label={`${field.replace('_', ' ')} for check ${check.check_index}`}
-                                  value={check[field] ?? ''}
-                                  onChange={(event) => {
-                                    const value = event.target.value;
-                                    updateCheck(check.check_index, (current) => ({ ...current, [field]: value }));
-                                  }}
-                                />
-                                <EditedMarker
-                                  show={String(check[field] ?? '') !== String(original[field] ?? '')}
-                                  original={original[field]}
-                                />
-                              </div>
-                            </td>
-                          ))}
-                          <td className="p-2">
-                            {checkNeedsReview(check) || check.verified ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setChecks((prev) =>
-                                    prev.map((item) =>
-                                      item.check_index === check.check_index
-                                        ? { ...item, verified: !item.verified }
-                                        : item
-                                    )
-                                  );
-                                  markDirty();
-                                }}
-                              >
-                                {check.verified ? 'Undo' : 'Mark verified'}
-                              </Button>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                          <StatusListIcon check={check} />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-baseline gap-1.5">
+                              <span className="font-medium">Check {check.check_index}</span>
+                              <span className="text-xs text-muted-foreground">{pageHint(check)}</span>
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              ${String(check.amount || '0')} · {check.name || 'No payee'}
+                            </span>
+                          </span>
+                          <span className="sr-only">{status.label}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {!visibleChecks.length ? (
+                    <li className="px-3 py-6 text-sm text-muted-foreground">No checks in this filter.</li>
+                  ) : null}
+                </ul>
               </div>
             </ResizablePanel>
+
             <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={38} minSize={24}>
-              <div className="h-full flex flex-col border-l">
-                <div className="border-b px-3 py-2">
-                  <p className="text-sm font-medium">Check images</p>
-                  <p className="text-xs text-muted-foreground">Click an image to open it full-size.</p>
-                </div>
-                <div className="flex-1 overflow-auto p-3 space-y-4">
-                  {selectedCheck ? (
-                    <>
+
+            <ResizablePanel defaultSize={72} minSize={40}>
+              <div className="h-full overflow-auto p-4 space-y-4">
+                {!selectedCheck ? (
+                  <p className="text-sm text-muted-foreground">Select a check to review.</p>
+                ) : (
+                  <>
+                    {issueLabels.length > 0 ? (
+                      <div
+                        className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-950"
+                        role="status"
+                      >
+                        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-red-600" aria-hidden="true" />
+                        <p className="font-medium">{issueLabels.join(' · ')}</p>
+                      </div>
+                    ) : null}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <CheckThumb
                         label="Front"
                         src={selectedCheck.front_image}
@@ -993,11 +964,255 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                         emptyLabel="No back was scanned for this check."
                         onOpen={setLightbox}
                       />
-                    </>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Select a check to view its images.</p>
-                  )}
-                </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="sm:col-span-2">
+                        <FieldLabel>Payee name</FieldLabel>
+                        <div className="flex items-center gap-1">
+                          <input
+                            className={FOCUS_INPUT}
+                            aria-label={`Payee name for check ${selectedCheck.check_index}`}
+                            value={selectedCheck.name ?? ''}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              updateCheck(selectedCheck.check_index, (current) => ({
+                                ...current,
+                                name: value,
+                              }));
+                            }}
+                          />
+                          <EditedMarker
+                            show={String(selectedCheck.name ?? '') !== String(originalSelected.name ?? '')}
+                            original={originalSelected.name}
+                          />
+                        </div>
+                      </label>
+
+                      <label>
+                        <FieldLabel invalid={amountInvalid}>Amount</FieldLabel>
+                        <div className="flex items-center gap-1">
+                          <input
+                            className={`${FOCUS_INPUT} ${amountInvalid ? ERROR_INPUT : ''}`}
+                            aria-invalid={amountInvalid || undefined}
+                            aria-label={`Amount for check ${selectedCheck.check_index}`}
+                            value={selectedCheck.amount ?? ''}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              updateCheck(selectedCheck.check_index, (current) => ({
+                                ...current,
+                                amount: value,
+                              }));
+                            }}
+                          />
+                          <EditedMarker
+                            show={
+                              String(selectedCheck.amount ?? '') !== String(originalSelected.amount ?? '')
+                            }
+                            original={originalSelected.amount}
+                          />
+                        </div>
+                      </label>
+
+                      <label>
+                        <FieldLabel invalid={checkNumberInvalid}>Check number</FieldLabel>
+                        <div className="flex items-center gap-1">
+                          <input
+                            className={`${FOCUS_INPUT} ${checkNumberInvalid ? ERROR_INPUT : ''}`}
+                            aria-invalid={checkNumberInvalid || undefined}
+                            aria-label={`Check number for check ${selectedCheck.check_index}`}
+                            value={selectedCheck.check_number ?? ''}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              updateCheck(selectedCheck.check_index, (current) => ({
+                                ...current,
+                                check_number: value,
+                              }));
+                            }}
+                          />
+                          <EditedMarker
+                            show={
+                              String(selectedCheck.check_number ?? '') !==
+                              String(originalSelected.check_number ?? '')
+                            }
+                            original={originalSelected.check_number}
+                          />
+                        </div>
+                      </label>
+
+                      <label>
+                        <FieldLabel invalid={providerInvalid}>Provider</FieldLabel>
+                        <div className="flex items-center gap-1">
+                          <input
+                            className={`${FOCUS_INPUT} ${providerInvalid ? ERROR_INPUT : ''}`}
+                            aria-invalid={providerInvalid || undefined}
+                            aria-label={`Provider for check ${selectedCheck.check_index}`}
+                            value={selectedCheck.provider ?? ''}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              updateCheck(selectedCheck.check_index, (current) => ({
+                                ...current,
+                                provider: value,
+                              }));
+                            }}
+                          />
+                          <EditedMarker
+                            show={
+                              String(selectedCheck.provider ?? '') !==
+                              String(originalSelected.provider ?? '')
+                            }
+                            original={originalSelected.provider}
+                          />
+                        </div>
+                      </label>
+
+                      <label>
+                        <FieldLabel>Scholarship name</FieldLabel>
+                        <div className="flex items-center gap-1">
+                          <input
+                            className={FOCUS_INPUT}
+                            aria-label={`Scholarship name for check ${selectedCheck.check_index}`}
+                            value={selectedCheck.scholarship_name ?? ''}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              updateCheck(selectedCheck.check_index, (current) => ({
+                                ...current,
+                                scholarship_name: value,
+                              }));
+                            }}
+                          />
+                          <EditedMarker
+                            show={
+                              String(selectedCheck.scholarship_name ?? '') !==
+                              String(originalSelected.scholarship_name ?? '')
+                            }
+                            original={originalSelected.scholarship_name}
+                          />
+                        </div>
+                      </label>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-sm font-medium">PIDs</h3>
+                        {checkNeedsReview(selectedCheck) || selectedCheck.verified ? (
+                          <Button type="button" variant="outline" size="sm" onClick={toggleVerified}>
+                            {selectedCheck.verified ? 'Undo' : 'Mark verified'}
+                          </Button>
+                        ) : null}
+                      </div>
+
+                      <div className="space-y-3">
+                        {selectedCheck.pids.map((entry, pidIndex) => {
+                          const flag = pidEntryFlag(entry);
+                          const pidInvalid = Boolean(flag);
+                          const extractedPid = (originalSelected.pids || [])[pidIndex]?.pid;
+                          const pidKey = entry._key;
+                          return (
+                            <div
+                              key={pidKey}
+                              className={`rounded-md border p-3 space-y-2 ${
+                                pidInvalid ? 'border-red-300 bg-red-50/20' : ''
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <label className="sr-only" htmlFor={`pid-${pidKey}`}>
+                                  PID for check {selectedCheck.check_index}
+                                </label>
+                                <input
+                                  id={`pid-${pidKey}`}
+                                  className={`${FOCUS_INPUT} ${pidInvalid ? ERROR_INPUT : ''}`}
+                                  aria-invalid={pidInvalid || undefined}
+                                  value={entry.pid ?? ''}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    updateCheck(selectedCheck.check_index, (current) => {
+                                      const next = [...current.pids];
+                                      const idx = next.findIndex((item) => item._key === pidKey);
+                                      if (idx < 0) return current;
+                                      next[idx] = {
+                                        ...next[idx],
+                                        pid: value,
+                                        active_directory: { status: 'not_found', name: null },
+                                        lookingUp: false,
+                                        _lookedUpFor: undefined,
+                                      };
+                                      return { ...current, pids: next };
+                                    });
+                                  }}
+                                  onBlur={(event) =>
+                                    lookupPid(selectedCheck.check_index, pidKey, event.target.value)
+                                  }
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      event.preventDefault();
+                                      lookupPid(
+                                        selectedCheck.check_index,
+                                        pidKey,
+                                        event.currentTarget.value
+                                      );
+                                    }
+                                  }}
+                                />
+                                <EditedMarker
+                                  show={String(entry.pid ?? '') !== String(extractedPid ?? '')}
+                                  original={extractedPid}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label={`Remove PID ${pidIndex + 1} from check ${selectedCheck.check_index}`}
+                                  onClick={() => {
+                                    updateCheck(selectedCheck.check_index, (current) => {
+                                      const next = current.pids.filter((item) => item._key !== pidKey);
+                                      return {
+                                        ...current,
+                                        pids: next.length ? next : [blankPidEntry()],
+                                      };
+                                    });
+                                  }}
+                                >
+                                  <Minus className="h-4 w-4" />
+                                </Button>
+                              </div>
+                              <p className="text-xs text-muted-foreground min-h-[1rem]">
+                                {entry.lookingUp
+                                  ? 'Looking up…'
+                                  : entry.active_directory?.status === 'found'
+                                    ? entry.active_directory.name
+                                    : ''}
+                              </p>
+                              <FlagChip
+                                flag={flag}
+                                onRetry={
+                                  flag?.type === 'ad_lookup_failed'
+                                    ? () => lookupPid(selectedCheck.check_index, pidKey, entry.pid)
+                                    : undefined
+                                }
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          updateCheck(selectedCheck.check_index, (current) => ({
+                            ...current,
+                            pids: [...current.pids, blankPidEntry()],
+                          }));
+                        }}
+                      >
+                        <Plus className="h-4 w-4" />
+                        Add PID
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>
