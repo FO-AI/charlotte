@@ -4,9 +4,7 @@ from typing import Annotated, Dict, List, Optional, TypedDict
 
 class CheckPair(TypedDict):
     check_index: int
-    front_image: bytes
-    back_image: Optional[bytes]         # None when no back was scanned for the check
-    pair_pdf_bytes: bytes
+    pair_pdf_bytes: bytes               # the check's front page, then its back when one was scanned
 
 
 class OrchestratorState(TypedDict):
@@ -21,6 +19,4 @@ class OrchestratorState(TypedDict):
 
 class WorkerState(TypedDict):
     check_index: int
-    front_image: bytes
-    back_image: Optional[bytes]         # None when no back was scanned for the check
-    pair_pdf_bytes: bytes
+    pair_pdf_bytes: bytes               # the check's front page, then its back when one was scanned

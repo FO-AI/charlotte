@@ -2,18 +2,40 @@ import logging
 import os
 from typing import Optional
 
+import requests
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.ai.projects import AIProjectClient
 from azure.core.credentials import AzureKeyCredential
+from azure.core.pipeline.transport import RequestsTransport
 from azure.identity import ClientSecretCredential
 from dotenv import load_dotenv
 from openai import AzureOpenAI
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from config.settings import settings
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+# requests keeps 10 connections per host by default. Each outside-scholarship upload runs up to
+# MAX_CONCURRENT_CHECKS Document Intelligence calls at once and uploads can overlap, so a smaller
+# pool makes urllib3 discard connections ("Connection pool is full"). This caps idle connections
+# kept, not calls made.
+_DOCUMENT_INTELLIGENCE_POOL_SIZE = 64
+
+
+def _document_intelligence_transport() -> RequestsTransport:
+    adapter = HTTPAdapter(
+        pool_maxsize=_DOCUMENT_INTELLIGENCE_POOL_SIZE,
+        # azure-core retries through its own pipeline policy, so urllib3 must not retry as well.
+        max_retries=Retry(total=False, redirect=False, raise_on_status=False),
+    )
+    session = requests.Session()
+    for scheme in ("https://", "http://"):
+        session.mount(scheme, adapter)
+    return RequestsTransport(session=session)
 
 
 class AzureClient:
@@ -91,6 +113,7 @@ class AzureClient:
             self.document_intelligence_client = DocumentIntelligenceClient(
                 endpoint=self.di_endpoint,
                 credential=AzureKeyCredential(self.di_key),
+                transport=_document_intelligence_transport(),
             )
             logger.info("Document Intelligence client setup successfully")
         except Exception as exc:

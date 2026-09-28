@@ -1,7 +1,10 @@
 import base64
 import json
+import math
 import os
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import fitz  # PyMuPDF
@@ -28,6 +31,11 @@ _PAGE_RENDER_DPI = 200
 _SIDE_CLASSIFICATION_DPI = 50
 # Conservative, to stay under the per-request image limit of vision chat models.
 _SIDE_CLASSIFICATION_BATCH_SIZE = 10
+
+# PyMuPDF does not support use from several threads at once, and check workers (and concurrent
+# uploads) run in parallel threads. Every PyMuPDF call, including opening and closing documents,
+# holds this lock. Hold it only around PyMuPDF work, never across an LLM or DI call.
+PYMUPDF_LOCK = threading.Lock()
 
 _REQUIRED_FIELDS = (
     "amount",
@@ -371,26 +379,48 @@ def _parse_page_sides(reply: str, page_numbers: Sequence[int]) -> List[str]:
     return [sides_by_page[page_number] for page_number in expected_pages]
 
 
-def _classify_page_sides(document: fitz.Document, llm: Any) -> List[str]:
-    """Label every page of the PDF as a check front or back, in page order."""
-    sides: List[str] = []
-    for batch_start in range(0, document.page_count, _SIDE_CLASSIFICATION_BATCH_SIZE):
-        batch_end = min(batch_start + _SIDE_CLASSIFICATION_BATCH_SIZE, document.page_count)
-        # Label pages with their PDF page numbers so logs and errors match what the user sees.
-        page_numbers = list(range(batch_start + 1, batch_end + 1))
+def _side_classification_content(document: fitz.Document, page_numbers: Sequence[int]) -> List[Dict[str, Any]]:
+    """Prompt plus a labeled thumbnail per page. Callers hold PYMUPDF_LOCK."""
+    content: List[Dict[str, Any]] = [{"type": "text", "text": CLASSIFY_CHECK_SIDES_PROMPT}]
+    for page_number in page_numbers:
+        content.append({"type": "text", "text": f"Page {page_number}"})
+        content.append(_png_image_part(_render_page_png(document, page_number - 1, _SIDE_CLASSIFICATION_DPI)))
+    return content
 
-        content: List[Dict[str, Any]] = [{"type": "text", "text": CLASSIFY_CHECK_SIDES_PROMPT}]
-        for page_number in page_numbers:
-            content.append({"type": "text", "text": f"Page {page_number}"})
-            content.append(_png_image_part(_render_page_png(document, page_number - 1, _SIDE_CLASSIFICATION_DPI)))
 
-        response = llm.chat.completions.create(
-            model=_MODEL,
-            messages=[{"role": "user", "content": content}],
-            response_format={"type": "json_object"},
-        )
-        sides.extend(_parse_page_sides(response.choices[0].message.content, page_numbers))
-    return sides
+def _classify_batch(llm: Any, content: List[Dict[str, Any]], page_numbers: Sequence[int]) -> List[str]:
+    response = llm.chat.completions.create(
+        model=_MODEL,
+        messages=[{"role": "user", "content": content}],
+        response_format={"type": "json_object"},
+    )
+    return _parse_page_sides(response.choices[0].message.content, page_numbers)
+
+
+def _classify_page_sides(
+    document: fitz.Document,
+    page_count: int,
+    llm: Any,
+    max_concurrency: Optional[int],
+) -> List[str]:
+    """Label every page of the PDF as a check front or back, in page order.
+
+    Batches are independent, so each is sent as soon as its thumbnails render, while earlier
+    batches are still waiting on the model.
+    """
+    batch_count = math.ceil(page_count / _SIDE_CLASSIFICATION_BATCH_SIZE)
+    worker_count = max(1, min(batch_count, max_concurrency or batch_count))
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        batches = []
+        for batch_start in range(0, page_count, _SIDE_CLASSIFICATION_BATCH_SIZE):
+            batch_end = min(batch_start + _SIDE_CLASSIFICATION_BATCH_SIZE, page_count)
+            # Label pages with their PDF page numbers so logs and errors match what the user sees.
+            page_numbers = list(range(batch_start + 1, batch_end + 1))
+            with PYMUPDF_LOCK:
+                content = _side_classification_content(document, page_numbers)
+            batches.append(pool.submit(_classify_batch, llm, content, page_numbers))
+        # Collect in page order, not completion order, so every side stays with its page.
+        return [side for batch in batches for side in batch.result()]
 
 
 def _group_pages_by_check(sides: Sequence[str]) -> List[Tuple[int, Optional[int]]]:
@@ -415,7 +445,8 @@ def _group_pages_by_check(sides: Sequence[str]) -> List[Tuple[int, Optional[int]
 def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[str, Any]:
     """Read PDF bytes/folder inputs, detect each page's side, and group pages per check.
 
-    Each check is its front page, followed by its back when one was scanned.
+    Each check is its front page, followed by its back when one was scanned. Full-resolution
+    images are rendered later by each check's worker, so checks start without waiting on them.
     """
     pdf_bytes_list: List[bytes] = list(state.get("pdf_files_bytes") or [])
 
@@ -436,39 +467,30 @@ def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[st
     check_index = 1
 
     for pdf_idx, pdf_bytes in enumerate(pdf_bytes_list, start=1):
-        document = fitz.open(stream=pdf_bytes, filetype="pdf")
+        with PYMUPDF_LOCK:
+            document = fitz.open(stream=pdf_bytes, filetype="pdf")
+            page_count = document.page_count
         try:
-            page_sides = _classify_page_sides(document, llm)
+            page_sides = _classify_page_sides(document, page_count, llm, config.get("max_concurrency"))
             logger.info(
                 "outside_scholarships.pairing: pdf=%s pages=%s sides=%s",
                 pdf_idx,
-                document.page_count,
+                page_count,
                 ",".join(page_sides),
             )
 
             for front_page_idx, back_page_idx in _group_pages_by_check(page_sides):
-                front_image = _render_page_png(document, front_page_idx, _PAGE_RENDER_DPI)
-                back_image = None
-                if back_page_idx is not None:
-                    back_image = _render_page_png(document, back_page_idx, _PAGE_RENDER_DPI)
+                with PYMUPDF_LOCK:
+                    pair_document = fitz.open()
+                    pair_document.insert_pdf(
+                        document,
+                        from_page=front_page_idx,
+                        to_page=front_page_idx if back_page_idx is None else back_page_idx,
+                    )
+                    pair_pdf_bytes = pair_document.tobytes()
+                    pair_document.close()
 
-                pair_document = fitz.open()
-                pair_document.insert_pdf(
-                    document,
-                    from_page=front_page_idx,
-                    to_page=front_page_idx if back_page_idx is None else back_page_idx,
-                )
-                pair_pdf_bytes = pair_document.tobytes()
-                pair_document.close()
-
-                paired_checks.append(
-                    {
-                        "check_index": check_index,
-                        "front_image": front_image,
-                        "back_image": back_image,
-                        "pair_pdf_bytes": pair_pdf_bytes,
-                    }
-                )
+                paired_checks.append({"check_index": check_index, "pair_pdf_bytes": pair_pdf_bytes})
                 logger.info(
                     "outside_scholarships.pairing: check=%s front_page=%s back_page=%s",
                     check_index,
@@ -477,7 +499,8 @@ def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[st
                 )
                 check_index += 1
         finally:
-            document.close()
+            with PYMUPDF_LOCK:
+                document.close()
 
     logger.info("outside_scholarships.pairing: total_checks=%s", len(paired_checks))
     return {"check_pairs": paired_checks}
@@ -490,8 +513,6 @@ def dispatch(state: OrchestratorState) -> List[Send]:
             "process_check",
             {
                 "check_index": pair["check_index"],
-                "front_image": pair["front_image"],
-                "back_image": pair["back_image"],
                 "pair_pdf_bytes": pair["pair_pdf_bytes"],
             },
         )
@@ -499,8 +520,11 @@ def dispatch(state: OrchestratorState) -> List[Send]:
     ]
 
 
-def _di_extract(state: WorkerState, config: RunnableConfig) -> Dict[str, Any]:
-    """Document Intelligence first pass over a check's front page and back page, if any."""
+def _start_di_extract(state: WorkerState, config: RunnableConfig) -> Any:
+    """Submit a check's front page and back page, if any, to Document Intelligence.
+
+    Returns the SDK poller, which keeps polling in a background thread until result() is called.
+    """
     di_client = config["configurable"].get("document_intelligence_client")
     di_model_id = config["configurable"].get("document_intelligence_model_id", "prebuilt-layout")
 
@@ -526,22 +550,33 @@ def _di_extract(state: WorkerState, config: RunnableConfig) -> Dict[str, Any]:
             body=pair_pdf_bytes,
             content_type="application/pdf",
         )
-    analyze_result = poller.result()
-    di_candidate = _extract_di_candidate(analyze_result)
+    return poller
 
+
+def _finish_di_extract(check_index: Optional[int], poller: Any) -> Dict[str, Any]:
+    """Wait for a submitted Document Intelligence analysis and parse its first-pass fields."""
+    di_candidate = _extract_di_candidate(poller.result())
     logger.info("outside_scholarships.di: check=%s pid_count=%s", check_index, len(di_candidate["pid_list"]))
     return di_candidate
 
 
-def _llm_verify(state: WorkerState, di_candidate: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+def _render_check_images(pair_pdf_bytes: bytes) -> Tuple[bytes, Optional[bytes]]:
+    """Render a check's front and, when one was scanned, its back for LLM verification."""
+    with PYMUPDF_LOCK, fitz.open(stream=pair_pdf_bytes, filetype="pdf") as pair_document:
+        front_image = _render_page_png(pair_document, 0, _PAGE_RENDER_DPI)
+        back_image = _render_page_png(pair_document, 1, _PAGE_RENDER_DPI) if pair_document.page_count > 1 else None
+    return front_image, back_image
+
+
+def _llm_verify(
+    check_index: Optional[int],
+    front_image: bytes,
+    back_image: Optional[bytes],
+    di_candidate: Dict[str, Any],
+    config: RunnableConfig,
+) -> Dict[str, Any]:
     """LLM verification/correction pass using the check's front (and back, if scanned) + DI first-pass fields."""
     llm = config["configurable"]["llm"]
-    check_index = state.get("check_index")
-    front_image = state.get("front_image")
-    back_image = state.get("back_image")
-    if not front_image:
-        raise ValueError("Missing front check image for LLM verification.")
-
     image_parts = [_png_image_part(front_image)]
     check_images_description = CHECK_IMAGES_FRONT_ONLY
     if back_image:
@@ -629,10 +664,15 @@ def process_check_node(state: WorkerState, config: RunnableConfig) -> Dict[str, 
     All three steps run inside a single node so each Send branch keeps its intermediate
     candidates local. Only check_results (an operator.add reducer) is written back to the
     shared graph state, so parallel workers never collide on a single-value key.
+
+    The check's images render while its Document Intelligence analysis runs in the background.
     """
-    di_candidate = _di_extract(state, config)
-    llm_candidate = _llm_verify(state, di_candidate, config)
-    final_check = _reconcile(state.get("check_index"), di_candidate, llm_candidate)
+    check_index = state.get("check_index")
+    poller = _start_di_extract(state, config)
+    front_image, back_image = _render_check_images(state["pair_pdf_bytes"])
+    di_candidate = _finish_di_extract(check_index, poller)
+    llm_candidate = _llm_verify(check_index, front_image, back_image, di_candidate, config)
+    final_check = _reconcile(check_index, di_candidate, llm_candidate)
     return {"check_results": [final_check]}
 
 
