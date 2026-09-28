@@ -13,6 +13,8 @@ from types import SimpleNamespace
 import fitz
 import httpx
 
+from services.banking.outside_scholarships.nodes import PYMUPDF_LOCK
+
 FRONT = "front"
 BACK = "back"
 ROUTE = "/api/banking/outside-scholarships"
@@ -52,7 +54,7 @@ class FakeDocumentIntelligence:
     def begin_analyze_document(self, model_id, request=None, **kwargs):
         self.calls += 1
         pdf_bytes = request.bytes_source if request is not None else kwargs["body"]
-        with fitz.open(stream=pdf_bytes, filetype="pdf") as document:
+        with PYMUPDF_LOCK, fitz.open(stream=pdf_bytes, filetype="pdf") as document:
             lines = [line for page in document for line in page.get_text().splitlines() if line.strip()]
         result = SimpleNamespace(
             pages=[SimpleNamespace(lines=[SimpleNamespace(content=line) for line in lines])],
@@ -154,9 +156,9 @@ def upload(client, app, sides, classify_reply=None, back_pids=None, graph=None):
         get_di=lambda: document_intelligence,
         di_model_id="prebuilt-check.us",
     )
-    graph = graph or FakeGraph()
     app.dependency_overrides[get_azure_client] = lambda: azure_client
-    app.dependency_overrides[get_graph_user_directory] = lambda: GraphUserDirectory(transport=graph.transport)
+    if graph is not None:
+        app.dependency_overrides[get_graph_user_directory] = lambda: GraphUserDirectory(transport=graph.transport)
 
     response = client.post(
         ROUTE,
