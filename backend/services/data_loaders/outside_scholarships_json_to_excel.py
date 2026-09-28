@@ -6,18 +6,14 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from openpyxl import Workbook
 from openpyxl.styles import Font
 
-_LOOKUP_FAILED_LABEL = "Lookup failed"
-
 
 def _active_directory_display_name(result: Optional[Mapping[str, Any]]) -> str:
-    if not result:
-        return ""
-    status = result.get("status")
-    if status == "found":
-        return result.get("name") or ""
-    if status == "lookup_failed":
-        return _LOOKUP_FAILED_LABEL
-    return ""
+    # Lazy import: module-level import of services.banking circularizes via data_loaders.
+    from services.banking.outside_scholarships.active_directory_names import (
+        active_directory_display_name,
+    )
+
+    return active_directory_display_name(result)  # type: ignore[arg-type]
 
 
 class OutsideScholarshipsDataLoader:
@@ -166,15 +162,6 @@ class OutsideScholarshipsDataLoader:
         for pid in extracted_set:
             if pid not in reviewed_set:
                 changes.append(f"Removed PID: {pid}")
-        for pid in reviewed_set:
-            if pid in extracted_set:
-                # Same PID kept; no per-PID field change beyond membership.
-                pass
-
-        # If PID order/membership same and scalar fields same, not edited.
-        if extracted_set != reviewed_set and not any(c.startswith("Added PID") or c.startswith("Removed PID") for c in changes):
-            # Defensive: membership already covered above.
-            pass
 
         edited = bool(changes)
         return edited, "; ".join(changes)

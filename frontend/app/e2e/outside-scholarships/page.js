@@ -4,10 +4,13 @@ import OutsideScholarshipsUploadModal from '@/components/banking/outside-scholar
 
 /**
  * Playwright harness: upload modal without MSAL (see MsalProviderWrapper E2E path).
- * Only available when NEXT_PUBLIC_ENABLE_E2E_HARNESS=1.
+ * Only available when NEXT_PUBLIC_ENABLE_E2E_HARNESS=1 under non-production (next dev).
  */
+const E2E_HARNESS =
+  process.env.NEXT_PUBLIC_ENABLE_E2E_HARNESS === '1' && process.env.NODE_ENV !== 'production';
+
 export default function OutsideScholarshipsE2EPage() {
-  if (process.env.NEXT_PUBLIC_ENABLE_E2E_HARNESS !== '1') {
+  if (!E2E_HARNESS) {
     return (
       <main className="min-h-screen p-6">
         <p>E2E harness disabled.</p>

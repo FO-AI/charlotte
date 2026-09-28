@@ -5,7 +5,10 @@ import { MsalProvider } from "@azure/msal-react";
 import { msalInstance } from './auth-config';
 import { AuthProvider, TestAuthProvider } from './auth-context-msal';
 
-const E2E_HARNESS = process.env.NEXT_PUBLIC_ENABLE_E2E_HARNESS === '1';
+// Only active under `next dev` (+ Playwright). Production bundles always have NODE_ENV=production,
+// so a leaked NEXT_PUBLIC_ENABLE_E2E_HARNESS=1 cannot skip sign-in in a real deploy.
+const E2E_HARNESS =
+  process.env.NEXT_PUBLIC_ENABLE_E2E_HARNESS === '1' && process.env.NODE_ENV !== 'production';
 
 export default function MsalProviderWrapper({ children }) {
   const [ready, setReady] = useState(E2E_HARNESS);
