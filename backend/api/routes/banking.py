@@ -35,8 +35,9 @@ async def outside_scholarships(
     """
     Accepts a single PDF file containing scanned outside-scholarship check pages.
 
-    Pages are ordered in front/back pairs: page 1 = front of check 1, page 2 = back
-    of check 1, page 3 = front of check 2, page 4 = back of check 2, and so on.
+    Each check is its front page, followed by its back page when one was scanned. Checks
+    without a back are fine (e.g. front, back, front, front, back = three checks); each
+    page's side is detected, so the page count does not need to be even.
 
     The multipart field is still named "files" (list of one) to match the shared
     upload plumbing, but exactly one PDF is expected.
