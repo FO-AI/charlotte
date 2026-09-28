@@ -998,3 +998,32 @@
     transform: translateY(0);
   }
 }
+
+@keyframes extract-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.extract-progress-bar {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 28%;
+  border-radius: 9999px;
+  background: var(--color-navy);
+  animation: extract-progress 1.7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .extract-progress-bar {
+    animation: none;
+    width: 100%;
+    opacity: 0.55;
+    transform: none;
+  }
+}
+
