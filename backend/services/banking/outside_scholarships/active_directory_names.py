@@ -11,20 +11,10 @@ from services.azure_services import DirectoryLookupError, DirectoryUser, GraphUs
 logger = get_logger(__name__)
 
 LOOKUP_FAILED = "Lookup failed"
-_NAME_SEPARATOR = "; "
 
 
-def format_active_directory_name(users: Sequence[DirectoryUser]) -> str:
-    """"Surname, GivenName" per account, else its display name; distinct names are joined.
-
-    Several accounts can share one PID. Showing every distinct name lets a reviewer
-    notice instead of the workbook silently picking one.
-    """
-    names = (_last_first_name(user) for user in users)
-    return _NAME_SEPARATOR.join(dict.fromkeys(name for name in names if name))
-
-
-def _last_first_name(user: DirectoryUser) -> str:
+def format_active_directory_name(user: DirectoryUser) -> str:
+    """"Surname, GivenName", or the display name when either part is missing."""
     if user.surname and user.given_name:
         return f"{user.surname}, {user.given_name}"
     return user.display_name or ""
@@ -51,9 +41,9 @@ async def lookup_active_directory_names(
         return {}
 
     try:
-        users_by_pid = await directory.find_users_by_employee_id(pids, access_token)
+        user_by_pid = await directory.find_users_by_employee_id(pids, access_token)
     except DirectoryLookupError:
         logger.exception("outside_scholarships.active_directory_names: lookup failed for %s PIDs", len(pids))
         return {pid: LOOKUP_FAILED for pid in pids}
 
-    return {pid: format_active_directory_name(users) for pid, users in users_by_pid.items()}
+    return {pid: format_active_directory_name(user) for pid, user in user_by_pid.items()}

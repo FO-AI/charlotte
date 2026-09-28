@@ -37,12 +37,12 @@ class GraphUserDirectory:
 
     async def find_users_by_employee_id(
         self, employee_ids: Sequence[str], access_token: str
-    ) -> Dict[str, List[DirectoryUser]]:
-        """Map each requested employee ID to the users that carry it; IDs with no user are absent.
+    ) -> Dict[str, DirectoryUser]:
+        """Map each requested employee ID to its user; IDs with no user are absent.
 
         Raises DirectoryLookupError when any Graph request fails.
         """
-        users_by_employee_id: Dict[str, List[DirectoryUser]] = {}
+        user_by_employee_id: Dict[str, DirectoryUser] = {}
         headers = {"Authorization": f"Bearer {access_token}"}
         async with httpx.AsyncClient(
             transport=self._transport, headers=headers, timeout=GRAPH_TIMEOUT_SECONDS
@@ -53,8 +53,8 @@ class GraphUserDirectory:
                 requested_by_folded_id = {employee_id.casefold(): employee_id for employee_id in batch}
                 for user in await self._fetch_users(client, batch):
                     requested_id = requested_by_folded_id[user.employee_id.casefold()]
-                    users_by_employee_id.setdefault(requested_id, []).append(user)
-        return users_by_employee_id
+                    user_by_employee_id[requested_id] = user
+        return user_by_employee_id
 
     @staticmethod
     async def _fetch_users(client: httpx.AsyncClient, employee_ids: Sequence[str]) -> List[DirectoryUser]:

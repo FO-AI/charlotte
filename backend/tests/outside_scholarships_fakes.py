@@ -115,12 +115,12 @@ def graph_user(employee_id, given_name=None, surname=None, display_name=None):
 class FakeGraph:
     """Microsoft Graph /users stand-in, keyed by employeeId.
 
-    Answers `$filter=employeeId in ('a','b')` from `users_by_pid`, or fails every request
+    Answers `$filter=employeeId in ('a','b')` from `user_by_pid`, or fails every request
     with `status_code` / a network error. Every request is kept for assertions.
     """
 
-    def __init__(self, users_by_pid=None, status_code=200, network_error=False):
-        self.users_by_pid = users_by_pid or {}
+    def __init__(self, user_by_pid=None, status_code=200, network_error=False):
+        self.user_by_pid = user_by_pid or {}
         self.status_code = status_code
         self.network_error = network_error
         self.requests = []
@@ -138,7 +138,7 @@ class FakeGraph:
                 self.status_code,
                 json={"error": {"code": "Authorization_RequestDenied", "message": "Insufficient privileges."}},
             )
-        users = [user for pid in self.requested_pids(request) for user in self.users_by_pid.get(pid, [])]
+        users = [self.user_by_pid[pid] for pid in self.requested_pids(request) if pid in self.user_by_pid]
         return httpx.Response(200, json={"value": users})
 
 

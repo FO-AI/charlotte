@@ -66,7 +66,7 @@ def test_active_directory_name_column_follows_check_name(client, override_auth, 
 
 
 def test_pid_found_in_directory_gets_last_first_name(client, override_auth, app):
-    graph = FakeGraph({_JANE_PID: [_JANE]})
+    graph = FakeGraph({_JANE_PID: _JANE})
 
     response, _, _ = upload(client, app, [FRONT, BACK], back_pids={1001: _JANE_PID}, graph=graph)
 
@@ -75,7 +75,7 @@ def test_pid_found_in_directory_gets_last_first_name(client, override_auth, app)
 
 
 def test_pid_missing_from_directory_is_blank(client, override_auth, app):
-    graph = FakeGraph({_JANE_PID: [_JANE]})
+    graph = FakeGraph({_JANE_PID: _JANE})
 
     response, _, _ = upload(client, app, [FRONT, BACK], back_pids={1001: "730009999"}, graph=graph)
 
@@ -84,7 +84,7 @@ def test_pid_missing_from_directory_is_blank(client, override_auth, app):
 
 
 def test_check_without_pid_is_blank_and_not_looked_up(client, override_auth, app):
-    graph = FakeGraph({_JANE_PID: [_JANE]})
+    graph = FakeGraph({_JANE_PID: _JANE})
 
     response, _, _ = upload(client, app, [FRONT, BACK, FRONT], back_pids={1001: _JANE_PID}, graph=graph)
 
@@ -94,7 +94,7 @@ def test_check_without_pid_is_blank_and_not_looked_up(client, override_auth, app
 
 
 def test_upload_without_pids_makes_no_graph_request(client, override_auth, app):
-    graph = FakeGraph({_JANE_PID: [_JANE]})
+    graph = FakeGraph({_JANE_PID: _JANE})
 
     response, _, _ = upload(client, app, [FRONT, FRONT], graph=graph)
 
@@ -104,7 +104,7 @@ def test_upload_without_pids_makes_no_graph_request(client, override_auth, app):
 
 
 def test_repeated_pid_is_looked_up_once_and_filled_on_every_row(client, override_auth, app):
-    graph = FakeGraph({_JANE_PID: [_JANE]})
+    graph = FakeGraph({_JANE_PID: _JANE})
 
     response, _, _ = upload(
         client, app, [FRONT, BACK, FRONT, BACK], back_pids={1001: _JANE_PID, 1002: _JANE_PID}, graph=graph
@@ -119,7 +119,7 @@ def test_more_than_fifteen_pids_are_split_across_requests(client, override_auth,
     check_count = _GRAPH_FILTER_MAX_VALUES + 1
     pids = {1000 + index: f"7300000{index:02d}" for index in range(1, check_count + 1)}
     graph = FakeGraph(
-        {pid: [graph_user(pid, given_name=f"Given{pid[-2:]}", surname=f"Surname{pid[-2:]}")] for pid in pids.values()}
+        {pid: graph_user(pid, given_name=f"Given{pid[-2:]}", surname=f"Surname{pid[-2:]}") for pid in pids.values()}
     )
 
     response, _, _ = upload(client, app, [FRONT, BACK] * check_count, back_pids=pids, graph=graph)
@@ -134,7 +134,7 @@ def test_more_than_fifteen_pids_are_split_across_requests(client, override_auth,
 
 
 def test_lookup_uses_signed_in_users_token_and_employee_id_filter(client, override_auth, app, bearer_token):
-    graph = FakeGraph({_JANE_PID: [_JANE]})
+    graph = FakeGraph({_JANE_PID: _JANE})
 
     upload(client, app, [FRONT, BACK], back_pids={1001: _JANE_PID}, graph=graph)
 
@@ -186,7 +186,7 @@ def test_graph_failure_still_returns_workbook_marked_lookup_failed(
 )
 def test_incomplete_name_falls_back_to_display_name(client, override_auth, app, given_name, surname):
     graph = FakeGraph(
-        {_JANE_PID: [graph_user(_JANE_PID, given_name=given_name, surname=surname, display_name="Sam Rivera")]}
+        {_JANE_PID: graph_user(_JANE_PID, given_name=given_name, surname=surname, display_name="Sam Rivera")}
     )
 
     response, _, _ = upload(client, app, [FRONT, BACK], back_pids={1001: _JANE_PID}, graph=graph)
@@ -195,41 +195,13 @@ def test_incomplete_name_falls_back_to_display_name(client, override_auth, app, 
     assert _pid_and_directory_name_rows(response) == [(_JANE_PID, "Sam Rivera")]
 
 
-def test_accounts_sharing_a_pid_show_each_distinct_name(client, override_auth, app):
-    graph = FakeGraph(
-        {
-            "730000001": [
-                graph_user("730000001", given_name="Chris", surname="Lee"),
-                graph_user("730000001", given_name="Christopher", surname="Lee"),
-            ],
-            "730000002": [
-                graph_user("730000002", given_name="Ana", surname="Diaz"),
-                graph_user("730000002", given_name="Ana", surname="Diaz"),
-            ],
-        }
-    )
-
-    response, _, _ = upload(
-        client, app, [FRONT, BACK, FRONT, BACK], back_pids={1001: "730000001", 1002: "730000002"}, graph=graph
-    )
-
-    assert response.status_code == 200, response.text
-    assert _pid_and_directory_name_rows(response) == [
-        ("730000001", "Lee, Chris; Lee, Christopher"),
-        ("730000002", "Diaz, Ana"),
-    ]
-
-
 def test_mixed_upload_produces_reviewable_workbook_artifact(client, override_auth, app):
     """Every outcome in one workbook, saved to tests/artifacts/ for a human to open."""
     graph = FakeGraph(
         {
-            _JANE_PID: [_JANE],
-            "730000004": [graph_user("730000004", display_name="Sam Rivera")],
-            "730000006": [
-                graph_user("730000006", given_name="Chris", surname="Lee"),
-                graph_user("730000006", given_name="Christopher", surname="Lee"),
-            ],
+            _JANE_PID: _JANE,
+            "730000004": graph_user("730000004", display_name="Sam Rivera"),
+            "730000006": graph_user("730000006", given_name="Chris", surname="Lee"),
         }
     )
     sides = [FRONT, BACK, FRONT, FRONT, BACK, FRONT, BACK, FRONT, BACK, FRONT, BACK]
@@ -246,6 +218,6 @@ def test_mixed_upload_produces_reviewable_workbook_artifact(client, override_aut
         ("730009999", ""),
         ("730000004", "Sam Rivera"),
         (_JANE_PID, "Doe, Jane"),
-        ("730000006", "Lee, Chris; Lee, Christopher"),
+        ("730000006", "Lee, Chris"),
     ]
     assert sorted(_all_requested_pids(graph)) == ["730000001", "730000004", "730000006", "730009999"]
