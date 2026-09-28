@@ -18,8 +18,8 @@ def build_graph():
     builder.add_node("aggregate", aggregate_node)
 
     builder.add_edge(START, "pair_pages")
-    # Fan-out: one worker branch per check pair, routed via Send. Each worker runs
-    # DI -> LLM verify -> reconcile end to end and writes only check_results.
+    # Fan-out: one worker branch per check pair, routed via Send. Each worker renders its
+    # check and reads the fields with one vision LLM call, and writes only check_results.
     builder.add_conditional_edges("pair_pages", dispatch, ["process_check"])
     # Fan-in: all worker branches converge here; check_results are merged by operator.add
     builder.add_edge("process_check", "aggregate")

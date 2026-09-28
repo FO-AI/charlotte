@@ -4,8 +4,8 @@ Skipped unless OUTSIDE_SCHOLARSHIPS_BENCHMARK is set; its value labels the repor
 
     OUTSIDE_SCHOLARSHIPS_BENCHMARK=before pytest tests/test_outside_scholarships_benchmark.py -s
 
-No real Azure access. The LLM and Document Intelligence are fakes that sleep for assumed call
-latencies, which are recorded in the report. Local CPU work (page rendering, PDF splitting,
+No real Azure or Graph access. The LLM is a fake that sleeps for assumed call latencies,
+which are recorded in the report, and conftest answers the Graph lookup from an empty directory. Local CPU work (page rendering, PDF splitting,
 Excel) is real, on scan-like pages. Each run writes backend/reports/outside_scholarships_benchmark_<label>_<cpus>.json.
 
 The pipeline's thread pool defaults to min(32, CPUs + 4) workers, so each run also emulates a
@@ -34,15 +34,12 @@ _SIDES = ["front", "back"] * _CHECK_COUNT
 
 # Assumed network latencies. Replace with numbers from real run logs when available.
 _SIDE_CLASSIFICATION_SECONDS = 3.0
-_DI_SUBMIT_SECONDS = 0.3
-_DI_ANALYZE_SECONDS = 2.0
-_LLM_VERIFY_SECONDS = 4.0
+_EXTRACTION_SECONDS = 4.0
 
 _SCAN_DPI = 300
 _LETTER_INCHES = (8.5, 11.0)
-_EMPTY_DI_RESULT = SimpleNamespace(pages=[], content="", key_value_pairs=[])
-_VERIFIED_CHECK = {
-    "pid_list": ["P0000000001"],
+_EXTRACTED_CHECK = {
+    "pid_list": ["730000001"],
     "amount": "100.00",
     "check_number": "1001",
     "name": "Student Name",
@@ -98,31 +95,12 @@ class _StageClock:
             self.last_end = now if self.last_end is None else max(self.last_end, now)
 
 
-class _LatencyDocumentIntelligence:
-    """Like the real SDK, submitting returns a poller and the analysis continues in the background."""
-
-    def __init__(self):
-        self.clock = _StageClock()
-
-    def begin_analyze_document(self, model_id, request=None, **kwargs):
-        self.clock.start()
-        time.sleep(_DI_SUBMIT_SECONDS)
-        ready_at = time.perf_counter() + _DI_ANALYZE_SECONDS
-
-        def result():
-            time.sleep(max(0.0, ready_at - time.perf_counter()))
-            self.clock.finish()
-            return _EMPTY_DI_RESULT
-
-        return SimpleNamespace(result=result)
-
-
 class _LatencyLLM:
-    """Answers side classification from the scripted sides and verification with a fixed check."""
+    """Answers side classification from the scripted sides and extraction with a fixed check."""
 
     def __init__(self):
         self.classification = _StageClock()
-        self.verification = _StageClock()
+        self.extraction = _StageClock()
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, model, messages, response_format):
@@ -133,7 +111,7 @@ class _LatencyLLM:
             reply = {"pages": [{"page": page, "side": _SIDES[page - 1]} for page in pages]}
             clock, seconds = self.classification, _SIDE_CLASSIFICATION_SECONDS
         else:
-            reply, clock, seconds = _VERIFIED_CHECK, self.verification, _LLM_VERIFY_SECONDS
+            reply, clock, seconds = _EXTRACTED_CHECK, self.extraction, _EXTRACTION_SECONDS
         clock.start()
         time.sleep(seconds)
         clock.finish()
@@ -159,12 +137,7 @@ def test_fifty_check_upload_timing(client, override_auth, app, monkeypatch, scan
     if emulated_cpu_count is not None:
         monkeypatch.setattr(os, "cpu_count", lambda: emulated_cpu_count)
     llm = _LatencyLLM()
-    document_intelligence = _LatencyDocumentIntelligence()
-    app.dependency_overrides[get_azure_client] = lambda: SimpleNamespace(
-        llm=llm,
-        get_di=lambda: document_intelligence,
-        di_model_id="prebuilt-check.us",
-    )
+    app.dependency_overrides[get_azure_client] = lambda: SimpleNamespace(llm=llm)
 
     upload_start = time.perf_counter()
     response = client.post(
@@ -175,10 +148,10 @@ def test_fifty_check_upload_timing(client, override_auth, app, monkeypatch, scan
     upload_end = time.perf_counter()
 
     assert response.status_code == 200, response.text
-    assert llm.verification.calls == _CHECK_COUNT
+    assert llm.extraction.calls == _CHECK_COUNT
 
     cpu_count = os.cpu_count()
-    classification, di, verification = llm.classification, document_intelligence.clock, llm.verification
+    classification, extraction = llm.classification, llm.extraction
     report = {
         "label": _LABEL,
         "commit": _commit(),
@@ -187,20 +160,17 @@ def test_fifty_check_upload_timing(client, override_auth, app, monkeypatch, scan
         "checks": _CHECK_COUNT,
         "assumed_latency_seconds": {
             "side_classification_call": _SIDE_CLASSIFICATION_SECONDS,
-            "di_submit": _DI_SUBMIT_SECONDS,
-            "di_analyze": _DI_ANALYZE_SECONDS,
-            "llm_verify_call": _LLM_VERIFY_SECONDS,
+            "extraction_call": _EXTRACTION_SECONDS,
         },
         "seconds": {
             "upload_to_excel": round(upload_end - upload_start, 2),
             "side_classification": round(classification.last_end - classification.first_start, 2),
-            "upload_to_first_di_call": round(di.first_start - upload_start, 2),
-            "first_di_call_to_last_verify": round(verification.last_end - di.first_start, 2),
+            "upload_to_first_extraction": round(extraction.first_start - upload_start, 2),
+            "first_to_last_extraction": round(extraction.last_end - extraction.first_start, 2),
         },
         "peak_in_flight": {
             "side_classification": classification.peak_in_flight,
-            "di": di.peak_in_flight,
-            "llm_verify": verification.peak_in_flight,
+            "extraction": extraction.peak_in_flight,
         },
     }
     _REPORTS_DIR.mkdir(exist_ok=True)

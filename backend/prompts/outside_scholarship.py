@@ -1,18 +1,23 @@
-VERIFY_OUTSIDE_SCHOLARSHIP_PROMPT = """
-You are verifying and correcting extracted fields for an outside-scholarship check.
-
-You are given a first-pass candidate from Azure Document Intelligence:
-{di_candidate_json}
+EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT = """
+You are reading the fields of one scanned outside-scholarship check.
 
 {check_images_description}
 
 Instructions:
-- Verify every field against the images.
-- Correct any wrong first-pass values.
-- Extract all student IDs as `pid_list` (include every PID visible on any provided image).
-- Return `amount` as a numeric string when possible (for example "1250.00").
-- `provider` means payer/remitter/check issuer.
-- `scholarship_name` can be null when absent.
+- Read every value directly from the images. Return null for a field you cannot read clearly; never guess.
+- `pid_list`: every student PID written or printed on any image, each as its own entry. A PID is a
+  UNC student ID of exactly 9 digits (for example 730123456). It often appears on the back, in the
+  memo line, or next to "PID", and a check can list several. Do not include the routing or account
+  number from the MICR line along the bottom of the check (the routing number is also 9 digits), the
+  check number, approval or authorization numbers, or any other number that is not a student PID.
+- `amount`: the check amount as a numeric string (for example "1250.00").
+- `check_number`: the check number printed on the check.
+- `name`: the student the scholarship is for. These checks are usually made payable to the
+  university, so the student's name is often in the memo line, a "student" or "for" line, or a
+  note; return the student's name, never the university's. If the payee line names both (for
+  example "UNC-CH FBO Jane Doe"), return only the student. Return null when no student is named.
+- `provider`: the payer, remitter, or check issuer.
+- `scholarship_name`: the scholarship or award the check names, or null when absent.
 
 Return ONLY valid JSON with exactly these keys:
 {
@@ -48,7 +53,3 @@ Return ONLY valid JSON with one entry per labeled page, in page order, for examp
   ]
 }
 """
-
-# Backward-compatible exports for modules that still import these names.
-CLASSIFY_CHECK_PROMPT = "Deprecated for outside scholarship hybrid flow."
-EXTRACT_CHECK_FIELDS_PROMPT = VERIFY_OUTSIDE_SCHOLARSHIP_PROMPT
