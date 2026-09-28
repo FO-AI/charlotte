@@ -97,6 +97,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+def get_bearer_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+    """The caller's raw access token: a Microsoft Graph token, forwarded for delegated Graph calls."""
+    return credentials.credentials
+
 async def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
     """Optional dependency that doesn't raise error if no auth provided"""
     if not credentials:

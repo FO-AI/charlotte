@@ -6,12 +6,11 @@ reached each check: fronts carry the check number and amount, backs carry the PI
 """
 
 import json
-from types import SimpleNamespace
 
-import fitz
 import pytest
 from openpyxl import load_workbook
 
+from outside_scholarships_fakes import BACK, FIRST_DATA_ROW, FRONT, upload
 from services.banking.outside_scholarships.nodes import PYMUPDF_LOCK
 
 FRONT = "front"
@@ -122,7 +121,7 @@ def _excel_rows(response, tmp_path):
     worksheet = load_workbook(workbook_path).active
     return [
         (pid or "", amount)
-        for pid, amount, *_ in worksheet.iter_rows(min_row=_FIRST_DATA_ROW, values_only=True)
+        for pid, amount, *_ in worksheet.iter_rows(min_row=FIRST_DATA_ROW, values_only=True)
     ]
 
 
@@ -164,7 +163,7 @@ def _excel_rows(response, tmp_path):
 def test_pages_group_into_checks_by_detected_side(
     client, override_auth, app, tmp_path, sides, expected_rows, expected_image_counts
 ):
-    response, llm, _ = _upload(client, app, sides)
+    response, llm, _ = upload(client, app, sides)
 
     assert response.status_code == 200, response.text
     assert _excel_rows(response, tmp_path) == expected_rows
@@ -179,7 +178,7 @@ def test_pages_group_into_checks_by_detected_side(
     ],
 )
 def test_back_without_front_is_rejected_with_page_number(client, override_auth, app, sides, orphan_page):
-    response, _, document_intelligence = _upload(client, app, sides)
+    response, _, document_intelligence = upload(client, app, sides)
 
     assert response.status_code == 400
     assert f"Page {orphan_page} " in response.json()["detail"]
@@ -201,7 +200,7 @@ def test_back_without_front_is_rejected_with_page_number(client, override_auth, 
     ],
 )
 def test_invalid_classifier_reply_fails_before_extraction(client, override_auth, app, classify_reply):
-    response, _, document_intelligence = _upload(client, app, [FRONT, BACK], classify_reply)
+    response, _, document_intelligence = upload(client, app, [FRONT, BACK], classify_reply)
 
     assert response.status_code == 500
     assert document_intelligence.calls == 0
@@ -215,7 +214,7 @@ def test_classifier_formatting_variations_are_accepted(client, override_auth, ap
             {"pages": [{"page": str(page), "side": f" {sides[page - 1].title()} "} for page in pages]}
         )
 
-    response, _, _ = _upload(client, app, sides, loosely_formatted_reply)
+    response, _, _ = upload(client, app, sides, loosely_formatted_reply)
 
     assert response.status_code == 200, response.text
     assert _excel_rows(response, tmp_path) == [("P0001001", 100.0), ("", 200.0)]
@@ -224,7 +223,7 @@ def test_classifier_formatting_variations_are_accepted(client, override_auth, ap
 def test_pages_beyond_one_batch_keep_pdf_page_numbers(client, override_auth, app, tmp_path):
     sides = [FRONT, BACK] * 6
 
-    response, llm, _ = _upload(client, app, sides)
+    response, llm, _ = upload(client, app, sides)
 
     assert response.status_code == 200, response.text
     # Batches are sent concurrently, so compare them independent of arrival order.

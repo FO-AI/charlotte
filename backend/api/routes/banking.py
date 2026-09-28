@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form
 from typing import Dict, List, Optional
+from utils.auth import get_bearer_token
 from utils.rba import check_banking_or_admin_permissions
 from config import get_logger
 from services.banking import BankingUploadService
-from services.azure_services import AzureClient
-from api.dependencies import get_azure_client
+from services.azure_services import AzureClient, GraphUserDirectory
+from api.dependencies import get_azure_client, get_graph_user_directory
 from services.banking import OutsideScholarshipService
 logger = get_logger(__name__)
 router = APIRouter(tags=["banking"])
@@ -29,6 +30,8 @@ async def outside_scholarships(
     aid_term: str = Form("F"),
     user: Dict = Depends(check_banking_or_admin_permissions),
     azure_client: AzureClient = Depends(get_azure_client),
+    user_directory: GraphUserDirectory = Depends(get_graph_user_directory),
+    graph_access_token: str = Depends(get_bearer_token),
 ):
     """Upload outside scholarship check PDF"""
 
@@ -42,7 +45,8 @@ async def outside_scholarships(
     The multipart field is still named "files" (list of one) to match the shared
     upload plumbing, but exactly one PDF is expected.
 
-    Calls OutsideScholarshipService to analyze the file.
+    Calls OutsideScholarshipService to analyze the file. Each PID's "Active Directory Name"
+    is looked up in Entra ID (employeeId) with the caller's own Microsoft Graph token.
 
     Optional multipart form fields:
     - aid_year: 4-digit aid year (defaults to current year)
@@ -63,10 +67,11 @@ async def outside_scholarships(
     if normalized_term not in {"F", "S"}:
         raise HTTPException(status_code=400, detail="Aid term must be 'F' or 'S'.")
 
-    outside_scholarship_service = OutsideScholarshipService(azure_client)
+    outside_scholarship_service = OutsideScholarshipService(azure_client, user_directory)
 
     return await outside_scholarship_service.upload_and_analyze_files(
         files,
+        graph_access_token=graph_access_token,
         aid_year=aid_year,
         aid_term=normalized_term,
     )

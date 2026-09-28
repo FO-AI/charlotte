@@ -31,7 +31,9 @@ const msalConfig = {
 };
 
 export const loginRequest = {
-  scopes: ["User.Read"],
+  // User.Read.All (delegated): the backend forwards this Graph token to look up
+  // students' Active Directory names by PID (employeeId) for outside scholarships.
+  scopes: ["User.Read", "User.Read.All"],
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);

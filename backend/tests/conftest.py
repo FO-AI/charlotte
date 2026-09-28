@@ -66,10 +66,18 @@ def admin_user():
 
 
 @pytest.fixture
-def override_auth(app, admin_user):
-    """Bypass JWT/Cosmos by overriding get_current_user."""
-    from utils.auth import get_current_user
+def bearer_token():
+    """The signed-in user's (fake) Microsoft Graph access token."""
+    return "test-user-graph-token"
+
+
+@pytest.fixture
+def override_auth(app, admin_user, bearer_token):
+    """Bypass JWT/Cosmos by overriding get_current_user and the raw bearer token."""
+    from utils.auth import get_bearer_token, get_current_user
 
     app.dependency_overrides[get_current_user] = lambda: admin_user
+    app.dependency_overrides[get_bearer_token] = lambda: bearer_token
     yield admin_user
     app.dependency_overrides.pop(get_current_user, None)
+    app.dependency_overrides.pop(get_bearer_token, None)

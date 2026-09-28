@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import BytesIO
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from openpyxl import Workbook
 from openpyxl.styles import Font
@@ -14,15 +14,23 @@ class OutsideScholarshipsDataLoader:
         "PID",
         "Amount",
         "Name",
+        "Active Directory Name",
         "Aid year",
         "Aid term",
         "Provider",
         "Scholarship name",
     ]
 
-    def __init__(self, aid_year: Optional[str] = None, aid_term: Optional[str] = None):
+    def __init__(
+        self,
+        aid_year: Optional[str] = None,
+        aid_term: Optional[str] = None,
+        active_directory_names: Optional[Mapping[str, str]] = None,
+    ):
         self.aid_year = self._normalize_aid_year(aid_year)
         self.aid_term = self._normalize_aid_term(aid_term)
+        # PID -> name from the directory lookup; a PID it does not name gets a blank cell.
+        self.active_directory_names = active_directory_names or {}
         self.report_date = date.today()
 
     @staticmethod
@@ -72,11 +80,13 @@ class OutsideScholarshipsDataLoader:
                 pid_list = [""]
 
             for pid in pid_list:
+                pid_text = str(pid).strip() if pid is not None else ""
                 rows.append(
                     [
-                        str(pid).strip() if pid is not None else "",
+                        pid_text,
                         amount_value,
                         name,
+                        self.active_directory_names.get(pid_text, ""),
                         self.aid_year,
                         self.aid_term,
                         provider,
@@ -129,10 +139,11 @@ class OutsideScholarshipsDataLoader:
             "A": 18,
             "B": 12,
             "C": 26,
-            "D": 12,
-            "E": 10,
-            "F": 26,
-            "G": 30,
+            "D": 26,
+            "E": 12,
+            "F": 10,
+            "G": 26,
+            "H": 30,
         }
         for column_name, width in column_widths.items():
             worksheet.column_dimensions[column_name].width = width
