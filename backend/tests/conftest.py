@@ -48,6 +48,18 @@ def app():
     return main.app
 
 
+@pytest.fixture(autouse=True)
+def offline_graph_directory(app):
+    """Keep every test off the real Microsoft Graph: an empty directory unless a test installs its own."""
+    from api.dependencies import get_graph_user_directory
+    from outside_scholarships_fakes import FakeGraph
+    from services.azure_services import GraphUserDirectory
+
+    app.dependency_overrides[get_graph_user_directory] = lambda: GraphUserDirectory(transport=FakeGraph().transport)
+    yield
+    app.dependency_overrides.pop(get_graph_user_directory, None)
+
+
 @pytest.fixture
 def client(app):
     with TestClient(app) as test_client:
