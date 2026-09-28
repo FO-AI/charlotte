@@ -33,8 +33,6 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
   const [errorMessage, setErrorMessage] = useState('');
   const [preview, setPreview] = useState(null);
   const fileInputRef = useRef(null);
-  const localTriggerRef = useRef(null);
-  const triggerRef = returnFocusRef || localTriggerRef;
 
   const extracting = phase === 'extracting';
   const reviewing = phase === 'review';
@@ -126,7 +124,7 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
     return (
       <OutsideScholarshipsReview
         preview={preview}
-        returnFocusRef={triggerRef}
+        returnFocusRef={returnFocusRef}
         onClose={() => {
           resetState();
           onClose();
@@ -169,7 +167,6 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
                 Select a single PDF file to upload.
               </p>
               <Button
-                ref={triggerRef}
                 variant="outline"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={extracting}

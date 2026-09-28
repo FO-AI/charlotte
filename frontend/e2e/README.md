@@ -1,6 +1,8 @@
 # Outside scholarships Playwright e2e
 
-Stubbed API review flow (no real auth or backend required).
+Stubbed API review flow (no real auth or backend required). The harness only activates
+under `next dev` when `NEXT_PUBLIC_ENABLE_E2E_HARNESS=1` (Playwright sets this). Production
+builds never skip MSAL even if that env var were set at build time.
 
 ```bash
 cd frontend

@@ -1,5 +1,4 @@
 import asyncio
-import json
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -18,6 +17,9 @@ from config import get_logger
 
 logger = get_logger(__name__)
 
+# Checks processed at once per upload; also bounds concurrent side-classification calls.
+# Without it the graph's thread pool defaults to CPUs + 4 workers: 6 on a 2-vCPU App Service
+# instance. Raise it only if the Azure OpenAI deployment's quota allows more vision calls at once.
 MAX_CONCURRENT_CHECKS = 16
 
 
@@ -88,11 +90,17 @@ class OutsideScholarshipService:
                 checks=payload.get("checks", []),
                 ad_by_pid=ad_by_pid,
             )
-            encoded_size = len(json.dumps(preview, ensure_ascii=False).encode("utf-8"))
+            preview_checks = preview.get("checks", [])
+            # Size is dominated by JPEG data URLs; sum their lengths instead of re-serializing.
+            preview_image_chars = sum(
+                len(check.get("front_preview") or "") + len(check.get("back_preview") or "")
+                for check in preview_checks
+                if isinstance(check, dict)
+            )
             logger.info(
-                "outside_scholarships.service: preview ready checks=%s json_bytes=%s",
-                len(preview.get("checks", [])),
-                encoded_size,
+                "outside_scholarships.service: preview ready checks=%s preview_image_chars≈%s",
+                len(preview_checks),
+                preview_image_chars,
             )
             return preview
         finally:

@@ -333,24 +333,18 @@ def dispatch(state: OrchestratorState) -> List[Send]:
     ]
 
 
-def _render_check_images(pair_pdf_bytes: bytes) -> Tuple[bytes, Optional[bytes]]:
-    """Render a check's front and, when one was scanned, its back for field extraction."""
+def _render_check_images(pair_pdf_bytes: bytes) -> Tuple[bytes, Optional[bytes], str, Optional[str]]:
+    """PNG bytes for extraction plus JPEG data URLs for the review UI (one open, one lock)."""
     with PYMUPDF_LOCK, fitz.open(stream=pair_pdf_bytes, filetype="pdf") as pair_document:
         front_image = _render_page_png(pair_document, 0, _PAGE_RENDER_DPI)
         back_image = _render_page_png(pair_document, 1, _PAGE_RENDER_DPI) if pair_document.page_count > 1 else None
-    return front_image, back_image
-
-
-def _render_preview_images(pair_pdf_bytes: bytes) -> Tuple[str, Optional[str]]:
-    """JPEG data URLs of the check's front and optional back for the review UI."""
-    with PYMUPDF_LOCK, fitz.open(stream=pair_pdf_bytes, filetype="pdf") as pair_document:
-        front_image = _render_page_jpeg_data_url(pair_document, 0, _PREVIEW_JPEG_DPI)
-        back_image = (
+        front_preview = _render_page_jpeg_data_url(pair_document, 0, _PREVIEW_JPEG_DPI)
+        back_preview = (
             _render_page_jpeg_data_url(pair_document, 1, _PREVIEW_JPEG_DPI)
             if pair_document.page_count > 1
             else None
         )
-    return front_image, back_image
+    return front_image, back_image, front_preview, back_preview
 
 
 def _parse_check_fields(reply: str, check_index: Optional[int]) -> Dict[str, Any]:
@@ -419,9 +413,8 @@ def process_check_node(state: WorkerState, config: RunnableConfig) -> Dict[str, 
     front_page = state.get("front_page")
     back_page = state.get("back_page")
     pair_pdf_bytes = state["pair_pdf_bytes"]
-    front_image, back_image = _render_check_images(pair_pdf_bytes)
+    front_image, back_image, front_preview, back_preview = _render_check_images(pair_pdf_bytes)
     check_fields = _extract_check_fields(check_index, front_image, back_image, config["configurable"]["llm"])
-    front_preview, back_preview = _render_preview_images(pair_pdf_bytes)
     return {
         "check_results": [
             {

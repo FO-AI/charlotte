@@ -262,18 +262,6 @@ function CheckThumb({ src, alt, label, emptyLabel, onOpen }) {
   );
 }
 
-function cloneChecks(checks) {
-  return (checks || []).map((check) => ({
-    ...check,
-    pids: (check.pids || []).map((entry) => ({
-      ...entry,
-      active_directory: entry.active_directory ? { ...entry.active_directory } : { status: 'not_found', name: null },
-    })),
-    verified: false,
-    _editedFields: {},
-  }));
-}
-
 function CheckLabel({ check }) {
   const index = check.check_index ?? '?';
   const pages = check.back_page
@@ -285,6 +273,42 @@ function CheckLabel({ check }) {
       <div className="text-xs text-muted-foreground whitespace-normal">{pages}</div>
     </div>
   );
+}
+
+let pidKeySeq = 0;
+function nextPidKey() {
+  pidKeySeq += 1;
+  return `pid-${pidKeySeq}`;
+}
+
+function cloneChecks(checks) {
+  return (checks || []).map((check) => ({
+    ...check,
+    pids: (checksPidsWithKeys(check.pids)),
+    verified: false,
+    _editedFields: {},
+  }));
+}
+
+function checksPidsWithKeys(pids) {
+  return (pids || []).map((entry) => ({
+    ...entry,
+    _key: entry._key || nextPidKey(),
+    active_directory: entry.active_directory
+      ? { ...entry.active_directory }
+      : { status: 'not_found', name: null },
+  }));
+}
+
+function ensurePidList(check) {
+  if (Array.isArray(check.pids) && check.pids.length) {
+    return check.pids.map((entry) => ({
+      ...entry,
+      _key: entry._key || nextPidKey(),
+      active_directory: entry.active_directory || { status: 'not_found', name: null },
+    }));
+  }
+  return [{ pid: '', _key: nextPidKey(), active_directory: { status: 'not_found', name: null } }];
 }
 
 function StatusBadge({ check }) {
@@ -335,6 +359,8 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
 
   const extractedRef = useRef(cloneChecks(preview?.checks || []));
   const [checks, setChecks] = useState(() => cloneChecks(preview?.checks || []));
+  const checksRef = useRef(checks);
+  checksRef.current = checks;
   const [aidYear, setAidYear] = useState(preview?.aid_year || String(new Date().getFullYear()));
   const [aidTerm, setAidTerm] = useState(preview?.aid_term || 'F');
   const [filter, setFilter] = useState('all');
@@ -349,14 +375,17 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const rowRefs = useRef({});
 
   const summary = useMemo(() => summarizeReview(checks), [checks]);
+  const selectedCheck = checks[selectedIndex] || checks[0] || null;
+  const selectedCheckId = selectedCheck?.check_index;
+  // Keep the focused row visible under "Needs review" so edits don't yank the row away mid-type.
   const visibleChecks = useMemo(() => {
     if (filter === 'needs_review') {
-      return checks.filter((check) => checkNeedsReview(check));
+      return checks.filter(
+        (check) => checkNeedsReview(check) || check.check_index === selectedCheckId
+      );
     }
     return checks;
-  }, [checks, filter]);
-
-  const selectedCheck = checks[selectedIndex] || checks[0] || null;
+  }, [checks, filter, selectedCheckId]);
 
   useEffect(() => {
     const onBeforeUnload = (event) => {
@@ -416,6 +445,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
         prev.map((check) => {
           if (check.check_index !== checkIndex) return check;
           const next = updater(check);
+          if (next === check) return check;
           return clearVerified ? clearVerifiedOnEdit(next) : next;
         })
       );
@@ -425,13 +455,27 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   );
 
   const lookupPid = useCallback(
-    async (checkIndex, pidIndex, pidValue) => {
+    async (checkIndex, pidKey, pidValue) => {
       const trimmed = String(pidValue ?? '').trim();
+      const currentCheck = checksRef.current.find((check) => check.check_index === checkIndex);
+      const currentEntry = (currentCheck?.pids || []).find((entry) => entry._key === pidKey);
+      if (!currentEntry) return;
+
       if (!isWellFormedPid(trimmed)) {
+        const samePid = String(currentEntry.pid ?? '') === trimmed;
+        const alreadyClear =
+          !currentEntry.lookingUp &&
+          (currentEntry.active_directory?.status === 'not_found' || !currentEntry.active_directory) &&
+          !currentEntry.active_directory?.name;
+        // Blur on empty/malformed with no real change must not clear Verified / disable Export.
+        if (samePid && alreadyClear) return;
+
         updateCheck(checkIndex, (check) => {
           const pids = [...(check.pids || [])];
-          pids[pidIndex] = {
-            ...pids[pidIndex],
+          const idx = pids.findIndex((entry) => entry._key === pidKey);
+          if (idx < 0) return check;
+          pids[idx] = {
+            ...pids[idx],
             pid: trimmed,
             active_directory: { status: 'not_found', name: null },
             lookingUp: false,
@@ -441,16 +485,18 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
         return;
       }
 
-      const key = `${checkIndex}:${pidIndex}`;
-      const seq = (lookupSeqRef.current[key] || 0) + 1;
-      lookupSeqRef.current[key] = seq;
+      const seqKey = `${checkIndex}:${pidKey}`;
+      const seq = (lookupSeqRef.current[seqKey] || 0) + 1;
+      lookupSeqRef.current[seqKey] = seq;
 
       // Lookup status updates are not field edits — do not clear verified.
       updateCheck(
         checkIndex,
         (check) => {
           const pids = [...(check.pids || [])];
-          pids[pidIndex] = { ...pids[pidIndex], pid: trimmed, lookingUp: true };
+          const idx = pids.findIndex((entry) => entry._key === pidKey);
+          if (idx < 0) return check;
+          pids[idx] = { ...pids[idx], pid: trimmed, lookingUp: true };
           return { ...check, pids };
         },
         { clearVerified: false }
@@ -458,14 +504,18 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
 
       try {
         const result = await apiClient.lookupOutsideScholarshipActiveDirectoryNames([trimmed]);
-        if (lookupSeqRef.current[key] !== seq) return;
+        if (lookupSeqRef.current[seqKey] !== seq) return;
         const entry = (result.pids || []).find((item) => item.pid === trimmed);
         const ad = entry?.active_directory || { status: 'not_found', name: null };
         updateCheck(
           checkIndex,
           (check) => {
             const pids = [...(check.pids || [])];
-            pids[pidIndex] = { ...pids[pidIndex], pid: trimmed, active_directory: ad, lookingUp: false };
+            const idx = pids.findIndex((item) => item._key === pidKey);
+            if (idx < 0) return check;
+            // Dropped or retargeted while in flight — do not resurrect or overwrite another PID.
+            if (String(pids[idx].pid ?? '').trim() !== trimmed) return check;
+            pids[idx] = { ...pids[idx], pid: trimmed, active_directory: ad, lookingUp: false };
             return { ...check, pids };
           },
           { clearVerified: false }
@@ -478,13 +528,16 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
           setLiveMessage("Couldn't reach Active Directory.");
         }
       } catch (error) {
-        if (lookupSeqRef.current[key] !== seq) return;
+        if (lookupSeqRef.current[seqKey] !== seq) return;
         updateCheck(
           checkIndex,
           (check) => {
             const pids = [...(check.pids || [])];
-            pids[pidIndex] = {
-              ...pids[pidIndex],
+            const idx = pids.findIndex((item) => item._key === pidKey);
+            if (idx < 0) return check;
+            if (String(pids[idx].pid ?? '').trim() !== trimmed) return check;
+            pids[idx] = {
+              ...pids[idx],
               pid: trimmed,
               active_directory: { status: 'lookup_failed', name: null },
               lookingUp: false,
@@ -572,11 +625,6 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     } finally {
       setExporting(false);
     }
-  };
-
-  const ensurePidList = (check) => {
-    if (Array.isArray(check.pids) && check.pids.length) return check.pids;
-    return [{ pid: '', active_directory: { status: 'not_found', name: null } }];
   };
 
   return (
@@ -728,36 +776,40 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                               {pids.map((entry, pidIndex) => {
                                 const flag = pidEntryFlag(entry);
                                 const extractedPid = (original.pids || [])[pidIndex]?.pid;
+                                const pidKey = entry._key;
                                 return (
-                                  <div key={`${check.check_index}-${pidIndex}`} className="rounded border p-2 space-y-1">
+                                  <div key={pidKey} className="rounded border p-2 space-y-1">
                                     <div className="flex items-center gap-2">
-                                      <label className="sr-only" htmlFor={`pid-${check.check_index}-${pidIndex}`}>
+                                      <label className="sr-only" htmlFor={`pid-${pidKey}`}>
                                         PID for check {check.check_index}
                                       </label>
                                       <input
-                                        id={`pid-${check.check_index}-${pidIndex}`}
+                                        id={`pid-${pidKey}`}
                                         className={FOCUS_INPUT}
                                         value={entry.pid ?? ''}
                                         onChange={(event) => {
                                           const value = event.target.value;
                                           updateCheck(check.check_index, (current) => {
                                             const next = [...ensurePidList(current)];
-                                            next[pidIndex] = {
-                                              ...next[pidIndex],
+                                            const idx = next.findIndex((item) => item._key === pidKey);
+                                            if (idx < 0) return current;
+                                            // Clear stale AD name as soon as the PID changes.
+                                            next[idx] = {
+                                              ...next[idx],
                                               pid: value,
-                                              active_directory: next[pidIndex]?.active_directory || {
-                                                status: 'not_found',
-                                                name: null,
-                                              },
+                                              active_directory: { status: 'not_found', name: null },
+                                              lookingUp: false,
                                             };
                                             return { ...current, pids: next };
                                           });
                                         }}
-                                        onBlur={(event) => lookupPid(check.check_index, pidIndex, event.target.value)}
+                                        onBlur={(event) =>
+                                          lookupPid(check.check_index, pidKey, event.target.value)
+                                        }
                                         onKeyDown={(event) => {
                                           if (event.key === 'Enter') {
                                             event.preventDefault();
-                                            lookupPid(check.check_index, pidIndex, event.currentTarget.value);
+                                            lookupPid(check.check_index, pidKey, event.currentTarget.value);
                                           }
                                         }}
                                       />
@@ -769,7 +821,9 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                         aria-label={`Remove PID ${pidIndex + 1} from check ${check.check_index}`}
                                         onClick={() => {
                                           updateCheck(check.check_index, (current) => {
-                                            const next = ensurePidList(current).filter((_, index) => index !== pidIndex);
+                                            const next = ensurePidList(current).filter(
+                                              (item) => item._key !== pidKey
+                                            );
                                             return { ...current, pids: next.length ? next : [] };
                                           });
                                         }}
@@ -793,7 +847,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                             size="sm"
                                             variant="outline"
                                             aria-label={`Retry lookup for PID ${entry.pid || ''}`}
-                                            onClick={() => lookupPid(check.check_index, pidIndex, entry.pid)}
+                                            onClick={() => lookupPid(check.check_index, pidKey, entry.pid)}
                                           >
                                             <RotateCcw className="h-3.5 w-3.5" />
                                             Retry lookup
@@ -813,7 +867,11 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                     ...current,
                                     pids: [
                                       ...ensurePidList(current),
-                                      { pid: '', active_directory: { status: 'not_found', name: null } },
+                                      {
+                                        pid: '',
+                                        _key: nextPidKey(),
+                                        active_directory: { status: 'not_found', name: null },
+                                      },
                                     ],
                                   }));
                                 }}
