@@ -1,10 +1,24 @@
 """A PID is 10 digits. Approval numbers must not become extra export rows."""
 
-from services.banking.outside_scholarships.nodes import _dedupe_pids, _normalize_pid
+from services.banking.outside_scholarships.nodes import (
+    _dedupe_pids,
+    _extract_pid_candidates,
+    _normalize_candidate,
+    _normalize_pid,
+    _reconcile,
+)
 from services.data_loaders.outside_scholarships_json_to_excel import OutsideScholarshipsDataLoader
 
 _PID = "1234567890"
+_SECOND_PID = "0987654321"
 _APPROVAL_NUMBER = "1380307"
+_EMPTY_FIELDS = {
+    "amount": "1000.00",
+    "check_number": "1001",
+    "name": None,
+    "provider": "Cabinetworks Group Michigan, LLC",
+    "scholarship_name": None,
+}
 
 
 def test_normalize_pid_keeps_exactly_ten_digits():
@@ -14,10 +28,44 @@ def test_normalize_pid_keeps_exactly_ten_digits():
     assert _normalize_pid(_APPROVAL_NUMBER) is None
     assert _normalize_pid("123456789") is None
     assert _normalize_pid("12345678901") is None
+    assert _normalize_pid(1380307) is None
+    assert _normalize_pid(1234567890) == _PID
 
 
 def test_dedupe_pids_drops_approval_number_beside_pid():
     assert _dedupe_pids([_PID, _APPROVAL_NUMBER, _PID]) == [_PID]
+
+
+def test_extract_pid_candidates_drops_approval_number_on_pid_line():
+    lines = [f"PID: {_PID} {_APPROVAL_NUMBER}"]
+    assert _extract_pid_candidates(lines, "\n".join(lines), {}) == [_PID]
+
+
+def test_normalize_candidate_filters_llm_pid_list_shapes():
+    assert _normalize_candidate({"pid_list": [_PID, _APPROVAL_NUMBER]})["pid_list"] == [_PID]
+    assert _normalize_candidate({"pid_list": f"{_PID}, {_APPROVAL_NUMBER}"})["pid_list"] == [_PID]
+    assert _normalize_candidate({"pid_list": int(_PID)})["pid_list"] == [_PID]
+    assert _normalize_candidate({"pid_list": int(_APPROVAL_NUMBER)})["pid_list"] == []
+
+
+def test_reconcile_does_not_keep_approval_number_from_either_source():
+    di_candidate = {"pid_list": [_PID, _APPROVAL_NUMBER], **_EMPTY_FIELDS}
+    llm_candidate = {"pid_list": [_PID, _APPROVAL_NUMBER], **_EMPTY_FIELDS}
+
+    final_check = _reconcile(0, di_candidate, llm_candidate)
+
+    assert final_check["pid_list"] == [_PID]
+    assert final_check["amount"] == "1000.00"
+    assert final_check["provider"] == "Cabinetworks Group Michigan, LLC"
+
+
+def test_reconcile_keeps_multiple_ten_digit_pids():
+    di_candidate = {"pid_list": [_PID], **_EMPTY_FIELDS}
+    llm_candidate = {"pid_list": [_SECOND_PID], **_EMPTY_FIELDS}
+
+    final_check = _reconcile(1, di_candidate, llm_candidate)
+
+    assert final_check["pid_list"] == [_PID, _SECOND_PID]
 
 
 def test_excel_emits_one_row_when_check_has_pid_and_approval_number():
@@ -45,7 +93,7 @@ def test_excel_keeps_multiple_ten_digit_pids_and_blank_when_none():
     rows = loader._expand_rows(
         [
             {
-                "pid_list": ["1234567890", "0987654321"],
+                "pid_list": [_PID, _SECOND_PID],
                 "amount": "50.00",
             },
             {
@@ -55,4 +103,5 @@ def test_excel_keeps_multiple_ten_digit_pids_and_blank_when_none():
         ]
     )
 
-    assert [row[0] for row in rows] == ["1234567890", "0987654321", ""]
+    assert [row[0] for row in rows] == [_PID, _SECOND_PID, ""]
+    assert [row[1] for row in rows] == [50.0, 50.0, 25.0]

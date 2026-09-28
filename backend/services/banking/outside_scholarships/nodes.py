@@ -41,7 +41,7 @@ _EMPTY_MARKERS = {"", "null", "none", "n/a", "na", "unknown", "not found", "not 
 _PID_DIGIT_COUNT = 10
 _PID_CONTEXT_CAPTURE_RE = re.compile(r"\bpid(?:s)?\b", re.IGNORECASE)
 _PID_TOKEN_RE = re.compile(r"[A-Z0-9-]{4,}", re.IGNORECASE)
-_PID_FALLBACK_RE = re.compile(r"\bP\d{6,10}\b", re.IGNORECASE)
+_PID_FALLBACK_RE = re.compile(r"\bP\d{10}\b", re.IGNORECASE)
 _AMOUNT_RE = re.compile(r"\$?\s*(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}")
 _CHECK_NUMBER_RE = re.compile(
     r"(?:check\s*(?:number|no\.?|#)|no\.?)\s*[:#]?\s*([A-Z0-9-]{3,})",
@@ -124,8 +124,11 @@ def _normalize_candidate(candidate: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         pid_candidates: Sequence[Any] = re.split(r"[\n,;/]+", raw_pids)
     elif isinstance(raw_pids, list):
         pid_candidates = raw_pids
-    else:
+    elif raw_pids is None:
         pid_candidates = []
+    else:
+        # LLMs sometimes return a single PID as a JSON number/string instead of a list.
+        pid_candidates = [raw_pids]
 
     normalized = {
         "pid_list": _dedupe_pids(pid_candidates),
@@ -583,6 +586,8 @@ def _reconcile(
     llm_candidate: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Merge DI first-pass + LLM verification into final check output."""
+    di_candidate = _normalize_candidate(di_candidate)
+    llm_candidate = _normalize_candidate(llm_candidate)
     merged_pid_list = _dedupe_pids(di_candidate.get("pid_list", []) + llm_candidate.get("pid_list", []))
     pid_status = "match" if di_candidate.get("pid_list", []) == llm_candidate.get("pid_list", []) else "corrected"
 

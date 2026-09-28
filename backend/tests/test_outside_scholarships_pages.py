@@ -68,9 +68,10 @@ class FakeLLM:
     Workers run concurrently, so image counts are keyed by check number, not call order.
     """
 
-    def __init__(self, sides, classify_reply=None):
+    def __init__(self, sides, classify_reply=None, extra_verify_pids=None):
         self.sides = sides
         self.classify_reply = classify_reply or self._scripted_reply
+        self.extra_verify_pids = extra_verify_pids or []
         self.classified_pages = []
         self.verify_image_counts = {}
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
@@ -92,6 +93,10 @@ class FakeLLM:
         di_candidate = json.loads(di_candidate_line)
         image_count = sum(1 for part in content if part["type"] == "image_url")
         self.verify_image_counts[di_candidate["check_number"]] = image_count
+        if self.extra_verify_pids:
+            injected = dict(di_candidate)
+            injected["pid_list"] = list(injected.get("pid_list") or []) + list(self.extra_verify_pids)
+            return self._reply(json.dumps(injected))
         return self._reply(di_candidate_line)
 
     @staticmethod
@@ -99,10 +104,10 @@ class FakeLLM:
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
 
 
-def _upload(client, app, sides, classify_reply=None):
+def _upload(client, app, sides, classify_reply=None, extra_verify_pids=None):
     from api.dependencies import get_azure_client
 
-    llm = FakeLLM(sides, classify_reply)
+    llm = FakeLLM(sides, classify_reply, extra_verify_pids=extra_verify_pids)
     document_intelligence = FakeDocumentIntelligence()
     azure_client = SimpleNamespace(
         llm=llm,
@@ -233,3 +238,16 @@ def test_pages_beyond_one_batch_keep_pdf_page_numbers(client, override_auth, app
     assert response.status_code == 200, response.text
     assert llm.classified_pages == [list(range(1, 11)), [11, 12]]
     assert [pid for pid, _ in _excel_rows(response, tmp_path)] == [_pid(1000 + i) for i in range(1, 7)]
+
+
+def test_llm_injected_approval_number_does_not_duplicate_excel_row(client, override_auth, app, tmp_path):
+    """Issue #13: the model treats a shorter approval number as a second PID."""
+    response, _, _ = _upload(
+        client,
+        app,
+        [FRONT, BACK],
+        extra_verify_pids=[_APPROVAL_NUMBER],
+    )
+
+    assert response.status_code == 200, response.text
+    assert _excel_rows(response, tmp_path) == [(_pid(1001), 100.0)]
