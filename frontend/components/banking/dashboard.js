@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import BankingUploadModal from '@/components/banking/upload-modal';
 import OutsideScholarshipsUploadModal from '@/components/banking/outside-scholarships-upload-modal';
@@ -14,6 +14,7 @@ import {
 export default function BankingDashboard() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showOutsideScholarshipsModal, setShowOutsideScholarshipsModal] = useState(false);
+  const outsideScholarshipsCardRef = useRef(null);
 
   const quickActions = [
     {
@@ -30,7 +31,9 @@ export default function BankingDashboard() {
       icon: FileCheck,
       onClick: () => setShowOutsideScholarshipsModal(true),
       gradient: 'from-[#4B9CD3] to-[#2B6FA6]',
-      iconBg: 'bg-[#4B9CD3]/10'
+      iconBg: 'bg-[#4B9CD3]/10',
+      cardRef: outsideScholarshipsCardRef,
+      tabIndex: 0,
     }
   ];
 
@@ -50,6 +53,7 @@ export default function BankingDashboard() {
         <OutsideScholarshipsUploadModal
           isOpen={showOutsideScholarshipsModal}
           onClose={() => setShowOutsideScholarshipsModal(false)}
+          returnFocusRef={outsideScholarshipsCardRef}
         />
         {/* Header Section */}
         <div className="mb-12 fade-in-up">
@@ -81,9 +85,18 @@ export default function BankingDashboard() {
               const delayClass = index < 3 ? `fade-in-up-delay-${index + 1}` : `fade-in-up-delay-${(index % 3) + 1}`;
               return (
                 <Card 
-                  key={index} 
-                  className={`${delayClass} group cursor-pointer border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-lg hover:shadow-2xl hover:border-primary/30 transition-all duration-300 transform hover:-translate-y-2 hover:scale-[1.02] relative overflow-hidden`}
+                  key={index}
+                  ref={action.cardRef}
+                  tabIndex={action.tabIndex}
+                  role="button"
+                  className={`${delayClass} group cursor-pointer border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-lg hover:shadow-2xl hover:border-primary/30 transition-all duration-300 transform hover:-translate-y-2 hover:scale-[1.02] relative overflow-hidden focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy`}
                   onClick={action.onClick}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      action.onClick();
+                    }
+                  }}
                 >
                   {/* Gradient background on hover */}
                   <div className={`absolute inset-0 bg-gradient-to-br ${action.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-300`}></div>

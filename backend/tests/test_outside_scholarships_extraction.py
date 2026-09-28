@@ -1,24 +1,7 @@
 """E2E: each check's fields come from one vision-LLM call on its images, with no Document Intelligence pass.
 
-Ways LLM-only extraction can fail, each guarded here or in the neighbouring outside-scholarship tests:
-1. The upload still needs Document Intelligence and fails with 500 "Document Intelligence client
-   is not configured". Every outside-scholarship test's fake Azure client has only an LLM, so any
-   Document Intelligence path left in the pipeline fails them all.
-2. A field the model returns never reaches the workbook (amount, payee name, provider,
-   scholarship name).
-3. A check is read from the wrong pages or at thumbnail resolution. The fake LLM finds each
-   image's page from a colour marker and fails any call that is not one front plus, at most, the
-   back right after it; test_outside_scholarships_concurrency checks the resolution.
-4. A number that is not a PID (an approval or check number, a 7- or 10-digit run) reaches the PID
-   column and the Active Directory lookup. Or a real nine-digit PID written with separators
-   ("730-000-001", "P730000001") or returned as a bare JSON value is dropped instead of normalized.
-5. Rows come out in the order extractions finish instead of check order
-   (test_outside_scholarships_concurrency).
-6. An unreadable reply for one check is written as an empty row instead of failing the upload.
-7. More extraction calls run at once than MAX_CONCURRENT_CHECKS (test_outside_scholarships_concurrency).
-
-No real Azure or Graph access (see outside_scholarships_fakes.py). The mixed-upload test saves its
-workbook to tests/artifacts/ for a human to open.
+No real Azure or Graph access (see outside_scholarships_fakes.py). Preview JSON is asserted
+directly; the mixed-upload test also exports Excel to tests/artifacts/ for review.
 """
 
 import json
@@ -29,7 +12,16 @@ from pathlib import Path
 import pytest
 from openpyxl import load_workbook
 
-from outside_scholarships_fakes import BACK, FIRST_DATA_ROW, FRONT, FakeGraph, graph_user, upload
+from outside_scholarships_fakes import (
+    BACK,
+    FRONT,
+    FakeGraph,
+    REVIEW_FIRST_DATA_ROW,
+    export_excel,
+    graph_user,
+    preview_payload,
+    upload,
+)
 
 _ARTIFACT_PATH = Path(__file__).parent / "artifacts" / "outside_scholarships_llm_extraction.xlsx"
 _AID_YEAR = str(date.today().year)
@@ -37,37 +29,60 @@ _JANE_PID = "730001001"
 _JANE = graph_user(_JANE_PID, given_name="Jane", surname="Doe")
 
 
-def _rows(response):
-    worksheet = load_workbook(BytesIO(response.content)).active
-    return [
-        tuple("" if cell is None else cell for cell in row)
-        for row in worksheet.iter_rows(min_row=FIRST_DATA_ROW, values_only=True)
-    ]
+def _preview_rows(response):
+    rows = []
+    for check in preview_payload(response)["checks"]:
+        pids = check.get("pids") or []
+        amount = float(check["amount"]) if check.get("amount") is not None else 0.0
+        ad_name = ""
+        name = check.get("name") or ""
+        provider = check.get("provider") or ""
+        scholarship = check.get("scholarship_name") or ""
+        year = preview_payload(response)["aid_year"]
+        term = preview_payload(response)["aid_term"]
+        if not pids:
+            rows.append(("", amount, name, "", year, term, provider, scholarship))
+            continue
+        for entry in pids:
+            ad = entry.get("active_directory") or {}
+            if ad.get("status") == "found":
+                ad_name = ad.get("name") or ""
+            elif ad.get("status") == "lookup_failed":
+                ad_name = "Lookup failed"
+            else:
+                ad_name = ""
+            rows.append((entry.get("pid") or "", amount, name, ad_name, year, term, provider, scholarship))
+    return rows
 
 
 def _pids(response):
-    return [row[0] for row in _rows(response)]
+    return [row[0] for row in _preview_rows(response)]
 
 
 def test_mixed_upload_fills_every_column_from_the_extraction(client, override_auth, app):
-    """Every column in one workbook, saved to tests/artifacts/ for review."""
     graph = FakeGraph({_JANE_PID: _JANE})
     sides = [FRONT, BACK, FRONT, FRONT, BACK]
-    # Check 1003's back carries two PIDs and an approval number, which must not become a row.
     back_pids = {1001: _JANE_PID, 1003: ["730001003", "730-001-013", "12345678"]}
 
     response, llm = upload(client, app, sides, back_pids=back_pids, graph=graph)
 
     assert response.status_code == 200, response.text
-    _ARTIFACT_PATH.parent.mkdir(exist_ok=True)
-    _ARTIFACT_PATH.write_bytes(response.content)
     assert llm.image_counts_by_check() == {1001: 2, 1002: 1, 1003: 2}
-    assert _rows(response) == [
+    assert _preview_rows(response) == [
         (_JANE_PID, 100.0, "Payee 1001", "Doe, Jane", _AID_YEAR, "F", "Provider 1001", "Scholarship 1001"),
         ("", 200.0, "Payee 1002", "", _AID_YEAR, "F", "Provider 1002", "Scholarship 1002"),
         ("730001003", 300.0, "Payee 1003", "", _AID_YEAR, "F", "Provider 1003", "Scholarship 1003"),
         ("730001013", 300.0, "Payee 1003", "", _AID_YEAR, "F", "Provider 1003", "Scholarship 1003"),
     ]
+
+    export_response = export_excel(client, app, preview_payload(response), verified_indexes={2}, graph=graph)
+    assert export_response.status_code == 200, export_response.text
+    _ARTIFACT_PATH.parent.mkdir(exist_ok=True)
+    _ARTIFACT_PATH.write_bytes(export_response.content)
+    worksheet = load_workbook(BytesIO(export_response.content)).active
+    assert worksheet["A4"].value == "Reviewed by"
+    excel_rows = list(worksheet.iter_rows(min_row=REVIEW_FIRST_DATA_ROW, values_only=True))
+    assert [(row[0] or "") for row in excel_rows] == [_JANE_PID, "", "730001003", "730001013"]
 
 
 @pytest.mark.parametrize(
@@ -127,5 +142,4 @@ def test_unreadable_reply_for_one_check_fails_the_upload(client, override_auth, 
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Failed to process outside scholarship PDF."
-    # The fake LLM's own pairing checks also end in this 500; the log shows which failure it was.
     assert f"Field extraction for check 2 {logged_reason}" in caplog.text

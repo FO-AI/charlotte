@@ -3,14 +3,22 @@
 UNC stores a student's PID as the Entra ID `employeeId`, so each PID is looked up there.
 """
 
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Literal, Optional, Sequence, TypedDict
 
 from config import get_logger
 from services.azure_services import DirectoryLookupError, DirectoryUser, GraphUserDirectory
 
 logger = get_logger(__name__)
 
-LOOKUP_FAILED = "Lookup failed"
+AdStatus = Literal["found", "not_found", "lookup_failed"]
+
+
+class ActiveDirectoryResult(TypedDict):
+    status: AdStatus
+    name: Optional[str]
+
+
+LOOKUP_FAILED_LABEL = "Lookup failed"
 
 
 def format_active_directory_name(user: DirectoryUser) -> str:
@@ -20,30 +28,60 @@ def format_active_directory_name(user: DirectoryUser) -> str:
     return user.display_name or ""
 
 
-def _distinct_pids(checks: Sequence[Dict[str, Any]]) -> List[str]:
+def _distinct_pids_from_checks(checks: Sequence[Dict[str, Any]]) -> List[str]:
     pids = (str(pid).strip() for check in checks for pid in check.get("pid_list") or [])
     return list(dict.fromkeys(pid for pid in pids if pid))
+
+
+def _normalize_pid_list(pids: Sequence[Any]) -> List[str]:
+    return list(dict.fromkeys(str(pid).strip() for pid in pids if pid is not None and str(pid).strip()))
+
+
+async def lookup_pids(
+    directory: GraphUserDirectory,
+    pids: Sequence[Any],
+    access_token: str,
+) -> Dict[str, ActiveDirectoryResult]:
+    """Map each PID to an Active Directory status and display name.
+
+    Graph failure maps every requested PID to lookup_failed so the review UI can
+    still show extraction results with a Retry action.
+    """
+    normalized = _normalize_pid_list(pids)
+    if not normalized:
+        return {}
+
+    try:
+        user_by_pid = await directory.find_users_by_employee_id(normalized, access_token)
+    except DirectoryLookupError:
+        logger.exception("outside_scholarships.active_directory_names: lookup failed for %s PIDs", len(normalized))
+        return {pid: {"status": "lookup_failed", "name": None} for pid in normalized}
+
+    results: Dict[str, ActiveDirectoryResult] = {}
+    for pid in normalized:
+        user = user_by_pid.get(pid)
+        if user is None:
+            results[pid] = {"status": "not_found", "name": None}
+        else:
+            results[pid] = {"status": "found", "name": format_active_directory_name(user)}
+    return results
 
 
 async def lookup_active_directory_names(
     directory: GraphUserDirectory,
     checks: Sequence[Dict[str, Any]],
     access_token: str,
-) -> Dict[str, str]:
-    """Map each extracted PID to its Active Directory name.
+) -> Dict[str, ActiveDirectoryResult]:
+    """Look up every distinct PID found on the extracted checks."""
+    return await lookup_pids(directory, _distinct_pids_from_checks(checks), access_token)
 
-    PIDs with no directory match are left out, so their cell stays blank. If Graph
-    fails, the error is logged and every PID maps to LOOKUP_FAILED: the extraction
-    work is still returned, and the column says the names are missing, not unknown.
-    """
-    pids = _distinct_pids(checks)
-    if not pids:
-        return {}
 
-    try:
-        user_by_pid = await directory.find_users_by_employee_id(pids, access_token)
-    except DirectoryLookupError:
-        logger.exception("outside_scholarships.active_directory_names: lookup failed for %s PIDs", len(pids))
-        return {pid: LOOKUP_FAILED for pid in pids}
-
-    return {pid: format_active_directory_name(user) for pid, user in user_by_pid.items()}
+def active_directory_display_name(result: Optional[ActiveDirectoryResult]) -> str:
+    """Excel cell text for an Active Directory lookup result."""
+    if not result:
+        return ""
+    if result["status"] == "found":
+        return result.get("name") or ""
+    if result["status"] == "lookup_failed":
+        return LOOKUP_FAILED_LABEL
+    return ""

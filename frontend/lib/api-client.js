@@ -18,6 +18,8 @@ const API_ENDPOINTS = {
   ediDashboardData: `${API_BASE_URL}/api/edi/dashboard_data`,
   uploadBankingFiles: `${API_BASE_URL}/api/banking/upload-files`,
   outsideScholarships: `${API_BASE_URL}/api/banking/outside-scholarships`,
+  outsideScholarshipsActiveDirectory: `${API_BASE_URL}/api/banking/outside-scholarships/active-directory-names`,
+  outsideScholarshipsExport: `${API_BASE_URL}/api/banking/outside-scholarships/export`,
 };
 
 // Create API client that requires auth headers to be passed in
@@ -91,26 +93,69 @@ export class APIClient {
         throw new Error(errorData.detail || `API error: ${response.status}`);
       }
 
-      const contentType = response.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
-        return await response.json();
-      }
-
-      if (
-        contentType.includes("spreadsheet") ||
-        contentType.includes("excel") ||
-        contentType.includes("octet-stream")
-      ) {
-        const blob = await response.blob();
-        const contentDisposition = response.headers.get("content-disposition") || "";
-        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
-        const filename = filenameMatch ? filenameMatch[1] : "outside_scholarships.xlsx";
-        return { blob, filename };
-      }
-
-      return await response.json().catch(() => ({}));
+      return await response.json();
     } catch (error) {
       console.error("Upload outside scholarships PDF failed:", error);
+      throw error;
+    }
+  }
+
+  async lookupOutsideScholarshipActiveDirectoryNames(pids) {
+    try {
+      const authHeaders = await this.getAuthHeaders();
+      const response = await fetch(API_ENDPOINTS.outsideScholarshipsActiveDirectory, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
+        body: JSON.stringify({ pids }),
+      });
+
+      if (response.status === 401) {
+        throw new Error('Authentication required');
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `API error: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Outside scholarships AD lookup failed:", error);
+      throw error;
+    }
+  }
+
+  async exportOutsideScholarshipsExcel(payload) {
+    try {
+      const authHeaders = await this.getAuthHeaders();
+      const response = await fetch(API_ENDPOINTS.outsideScholarshipsExport, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.status === 401) {
+        throw new Error('Authentication required');
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `API error: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const contentDisposition = response.headers.get("content-disposition") || "";
+      const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+      const filename = filenameMatch ? filenameMatch[1] : "outside_scholarships.xlsx";
+      return { blob, filename };
+    } catch (error) {
+      console.error("Export outside scholarships Excel failed:", error);
       throw error;
     }
   }

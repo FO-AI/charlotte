@@ -3,12 +3,16 @@
 import { useEffect, useState } from 'react';
 import { MsalProvider } from "@azure/msal-react";
 import { msalInstance } from './auth-config';
-import { AuthProvider } from './auth-context-msal';
+import { AuthProvider, TestAuthProvider } from './auth-context-msal';
+
+const E2E_HARNESS = process.env.NEXT_PUBLIC_ENABLE_E2E_HARNESS === '1';
 
 export default function MsalProviderWrapper({ children }) {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(E2E_HARNESS);
 
   useEffect(() => {
+    if (E2E_HARNESS) return undefined;
+
     let cancelled = false;
 
     (async () => {
@@ -27,6 +31,10 @@ export default function MsalProviderWrapper({ children }) {
       cancelled = true;
     };
   }, []);
+
+  if (E2E_HARNESS) {
+    return <TestAuthProvider>{children}</TestAuthProvider>;
+  }
 
   if (!ready) {
     return (

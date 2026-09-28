@@ -19,13 +19,11 @@ checked structurally (barriers and in-flight counters), never with wall-clock th
 """
 
 import threading
-from io import BytesIO
 
 import fitz
 import pytest
-from openpyxl import load_workbook
 
-from outside_scholarships_fakes import BACK, FIRST_CHECK_NUMBER, FIRST_DATA_ROW, FRONT, default_pid, upload
+from outside_scholarships_fakes import BACK, FIRST_CHECK_NUMBER, FRONT, default_pid, upload
 from services.banking.outside_scholarships.nodes import PYMUPDF_LOCK
 from services.banking.outside_scholarships.service import MAX_CONCURRENT_CHECKS
 
@@ -95,6 +93,8 @@ def test_classification_calls_stay_within_the_concurrency_cap(client, override_a
 
 
 def test_rows_keep_check_order_when_extractions_finish_out_of_order(client, override_auth, app):
+    from outside_scholarships_fakes import preview_pid_amount_rows
+
     check_count = 4
     last_check = FIRST_CHECK_NUMBER + check_count - 1
 
@@ -107,8 +107,7 @@ def test_rows_keep_check_order_when_extractions_finish_out_of_order(client, over
     )
 
     assert response.status_code == 200, response.text
-    worksheet = load_workbook(BytesIO(response.content)).active
-    pids = [pid for pid, *_ in worksheet.iter_rows(min_row=FIRST_DATA_ROW, values_only=True)]
+    pids = [pid for pid, _ in preview_pid_amount_rows(response)]
     assert pids == [default_pid(FIRST_CHECK_NUMBER + offset) for offset in range(check_count)]
 
 

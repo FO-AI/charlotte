@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -7,16 +8,16 @@ from fastapi import UploadFile
 from fastapi.responses import StreamingResponse
 
 from services.azure_services import AzureClient, GraphUserDirectory
-from services.banking.outside_scholarships.active_directory_names import lookup_active_directory_names
+from services.banking.outside_scholarships.active_directory_names import (
+    lookup_active_directory_names,
+    lookup_pids,
+)
 from services.banking.outside_scholarships.graph import build_graph
 from services.data_loaders import OutsideScholarshipsDataLoader
 from config import get_logger
 
 logger = get_logger(__name__)
 
-# Checks processed at once per upload; also bounds concurrent side-classification calls.
-# Without it the graph's thread pool defaults to CPUs + 4 workers: 6 on a 2-vCPU App Service
-# instance. Raise it only if the Azure OpenAI deployment's quota allows more vision calls at once.
 MAX_CONCURRENT_CHECKS = 16
 
 
@@ -32,12 +33,8 @@ class OutsideScholarshipService:
         graph_access_token: str,
         aid_year: str | None = None,
         aid_term: str | None = None,
-    ) -> StreamingResponse:
-        """Accept uploaded PDF files, run extraction, and return an Excel file.
-
-        `graph_access_token` is the signed-in user's Microsoft Graph token, used to look
-        up each PID's Active Directory name.
-        """
+    ) -> Dict[str, Any]:
+        """Accept one PDF, run extraction, look up AD names, and return a review preview."""
         if len(files) != 1:
             raise HTTPException(status_code=400, detail="Upload exactly one PDF file.")
 
@@ -52,6 +49,11 @@ class OutsideScholarshipService:
             pdf_bytes = await upload.read()
             if not pdf_bytes:
                 raise HTTPException(status_code=400, detail="Uploaded PDF is empty.")
+
+            try:
+                loader = OutsideScholarshipsDataLoader(aid_year=aid_year, aid_term=aid_term)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
             initial_state = {
                 "pdf_folder": None,
@@ -76,18 +78,59 @@ class OutsideScholarshipService:
 
             payload = result.get("final_payload", {"checks": []})
             self._log_extracted_checks(payload)
-            active_directory_names = await lookup_active_directory_names(
+            ad_by_pid = await lookup_active_directory_names(
                 self.user_directory, payload.get("checks", []), graph_access_token
             )
-            return self._build_excel_response(
-                payload, active_directory_names, aid_year=aid_year, aid_term=aid_term
+            preview = self._build_preview_payload(
+                filename=filename,
+                aid_year=loader.aid_year,
+                aid_term=loader.aid_term,
+                checks=payload.get("checks", []),
+                ad_by_pid=ad_by_pid,
             )
+            encoded_size = len(json.dumps(preview, ensure_ascii=False).encode("utf-8"))
+            logger.info(
+                "outside_scholarships.service: preview ready checks=%s json_bytes=%s",
+                len(preview.get("checks", [])),
+                encoded_size,
+            )
+            return preview
         finally:
-            # Explicitly close uploaded file handle to avoid residual temp file handles.
             await upload.close()
 
+    async def lookup_active_directory_for_pids(
+        self,
+        pids: List[str],
+        graph_access_token: str,
+    ) -> Dict[str, Any]:
+        results = await lookup_pids(self.user_directory, pids, graph_access_token)
+        return {"pids": [{"pid": pid, "active_directory": results[pid]} for pid in results]}
+
+    def export_reviewed(
+        self,
+        payload: Dict[str, Any],
+        reviewed_by: str,
+    ) -> StreamingResponse:
+        try:
+            loader = OutsideScholarshipsDataLoader(
+                aid_year=payload.get("aid_year"),
+                aid_term=payload.get("aid_term"),
+                reviewed_by=reviewed_by,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        excel_output = loader.build_reviewed_excel_bytes(payload)
+        file_date = datetime.now().strftime("%Y%m%d")
+        filename = f"outside_scholarships_{file_date}.xlsx"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        return StreamingResponse(
+            excel_output,
+            headers=headers,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     async def process_folder(self, folder_path: str) -> Dict[str, Any]:
-        """Process all PDF checks found in a local folder."""
         initial_state = {
             "pdf_folder": folder_path,
             "pdf_files_bytes": [],
@@ -106,35 +149,53 @@ class OutsideScholarshipService:
         return payload
 
     @staticmethod
-    def _build_excel_response(
-        extraction_payload: Dict[str, Any],
-        active_directory_names: Dict[str, str],
-        aid_year: str | None = None,
-        aid_term: str | None = None,
-    ) -> StreamingResponse:
-        try:
-            loader = OutsideScholarshipsDataLoader(
-                aid_year=aid_year,
-                aid_term=aid_term,
-                active_directory_names=active_directory_names,
+    def _build_preview_payload(
+        filename: str,
+        aid_year: str,
+        aid_term: str,
+        checks: Any,
+        ad_by_pid: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        preview_checks: List[Dict[str, Any]] = []
+        for check in checks if isinstance(checks, list) else []:
+            if not isinstance(check, dict):
+                continue
+            pid_list = check.get("pid_list") if isinstance(check.get("pid_list"), list) else []
+            pids = []
+            for pid in pid_list:
+                pid_text = str(pid).strip() if pid is not None else ""
+                if not pid_text:
+                    continue
+                pids.append(
+                    {
+                        "pid": pid_text,
+                        "active_directory": ad_by_pid.get(
+                            pid_text, {"status": "not_found", "name": None}
+                        ),
+                    }
+                )
+            metadata = check.get("metadata") if isinstance(check.get("metadata"), dict) else {}
+            preview_checks.append(
+                {
+                    "check_index": metadata.get("check_index", check.get("check_index")),
+                    "front_page": check.get("front_page"),
+                    "back_page": check.get("back_page"),
+                    "front_image": check.get("front_image"),
+                    "back_image": check.get("back_image"),
+                    "amount": check.get("amount"),
+                    "check_number": check.get("check_number"),
+                    "name": check.get("name"),
+                    "provider": check.get("provider"),
+                    "scholarship_name": check.get("scholarship_name"),
+                    "pids": pids,
+                }
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        logger.info(
-            "outside_scholarships.service: building excel aid_year=%s aid_term=%s",
-            loader.aid_year,
-            loader.aid_term,
-        )
-        excel_output = loader.build_excel_bytes(extraction_payload)
-        file_date = datetime.now().strftime("%Y%m%d")
-        filename = f"outside_scholarships_{file_date}.xlsx"
-        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
-        return StreamingResponse(
-            excel_output,
-            headers=headers,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        return {
+            "filename": filename,
+            "aid_year": aid_year,
+            "aid_term": aid_term,
+            "checks": preview_checks,
+        }
 
     @staticmethod
     def _log_extracted_checks(payload: Dict[str, Any]) -> None:
@@ -150,19 +211,14 @@ class OutsideScholarshipService:
                 continue
 
             pid_count = len(check.get("pid_list", [])) if isinstance(check.get("pid_list"), list) else 0
-            has_amount = check.get("amount") is not None
-            has_check_number = check.get("check_number") is not None
-            has_name = check.get("name") is not None
-            has_provider = check.get("provider") is not None
-            has_scholarship_name = check.get("scholarship_name") is not None
             logger.info(
                 "outside_scholarships.service: check_%s_extracted pid_count=%s "
                 "has_amount=%s has_check_number=%s has_name=%s has_provider=%s has_scholarship_name=%s",
                 idx,
                 pid_count,
-                has_amount,
-                has_check_number,
-                has_name,
-                has_provider,
-                has_scholarship_name,
+                check.get("amount") is not None,
+                check.get("check_number") is not None,
+                check.get("name") is not None,
+                check.get("provider") is not None,
+                check.get("scholarship_name") is not None,
             )
