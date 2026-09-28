@@ -75,7 +75,7 @@ export default function SessionTimer({ onSessionExpired }) {
   const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
   // Color based on remaining time
-  let colorClasses = 'text-muted-foreground bg-muted/50'; // Normal - gray
+  let colorClasses = 'text-navy bg-[rgba(19,41,75,0.14)]';
   if (remainingTime <= CRITICAL_THRESHOLD_MS) {
     colorClasses = 'text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-950/50 animate-pulse';
   } else if (remainingTime <= WARNING_THRESHOLD_MS) {
