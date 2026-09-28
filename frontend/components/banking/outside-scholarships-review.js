@@ -1115,53 +1115,74 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                 pidInvalid ? 'border-red-300 bg-red-50/20' : ''
                               }`}
                             >
-                              <div className="flex items-center gap-2">
-                                <label className="sr-only" htmlFor={`pid-${pidKey}`}>
-                                  PID for check {selectedCheck.check_index}
-                                </label>
-                                <input
-                                  id={`pid-${pidKey}`}
-                                  className={`${FOCUS_INPUT} ${pidInvalid ? ERROR_INPUT : ''}`}
-                                  aria-invalid={pidInvalid || undefined}
-                                  value={entry.pid ?? ''}
-                                  onChange={(event) => {
-                                    const value = event.target.value;
-                                    updateCheck(selectedCheck.check_index, (current) => {
-                                      const next = [...current.pids];
-                                      const idx = next.findIndex((item) => item._key === pidKey);
-                                      if (idx < 0) return current;
-                                      next[idx] = {
-                                        ...next[idx],
-                                        pid: value,
-                                        active_directory: { status: 'not_found', name: null },
-                                        lookingUp: false,
-                                        _lookedUpFor: undefined,
-                                      };
-                                      return { ...current, pids: next };
-                                    });
-                                  }}
-                                  onBlur={(event) =>
-                                    lookupPid(selectedCheck.check_index, pidKey, event.target.value)
-                                  }
-                                  onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                      event.preventDefault();
-                                      lookupPid(
-                                        selectedCheck.check_index,
-                                        pidKey,
-                                        event.currentTarget.value
-                                      );
-                                    }
-                                  }}
-                                />
-                                <EditedMarker
-                                  show={String(entry.pid ?? '') !== String(extractedPid ?? '')}
-                                  original={extractedPid}
-                                />
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                                <div className="w-full sm:w-[11rem] shrink-0">
+                                  <FieldLabel invalid={pidInvalid}>PID</FieldLabel>
+                                  <div className="flex items-center gap-1">
+                                    <label className="sr-only" htmlFor={`pid-${pidKey}`}>
+                                      PID for check {selectedCheck.check_index}
+                                    </label>
+                                    <input
+                                      id={`pid-${pidKey}`}
+                                      className={`${FOCUS_INPUT} ${pidInvalid ? ERROR_INPUT : ''}`}
+                                      aria-invalid={pidInvalid || undefined}
+                                      inputMode="numeric"
+                                      maxLength={11}
+                                      value={entry.pid ?? ''}
+                                      onChange={(event) => {
+                                        const value = event.target.value;
+                                        updateCheck(selectedCheck.check_index, (current) => {
+                                          const next = [...current.pids];
+                                          const idx = next.findIndex((item) => item._key === pidKey);
+                                          if (idx < 0) return current;
+                                          next[idx] = {
+                                            ...next[idx],
+                                            pid: value,
+                                            active_directory: { status: 'not_found', name: null },
+                                            lookingUp: false,
+                                            _lookedUpFor: undefined,
+                                          };
+                                          return { ...current, pids: next };
+                                        });
+                                      }}
+                                      onBlur={(event) =>
+                                        lookupPid(selectedCheck.check_index, pidKey, event.target.value)
+                                      }
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') {
+                                          event.preventDefault();
+                                          lookupPid(
+                                            selectedCheck.check_index,
+                                            pidKey,
+                                            event.currentTarget.value
+                                          );
+                                        }
+                                      }}
+                                    />
+                                    <EditedMarker
+                                      show={String(entry.pid ?? '') !== String(extractedPid ?? '')}
+                                      original={extractedPid}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <FieldLabel>Active Directory name</FieldLabel>
+                                  <div
+                                    className={`${FOCUS_INPUT} bg-muted/30 text-sm min-h-[2.5rem] flex items-center`}
+                                    aria-live="polite"
+                                  >
+                                    {entry.lookingUp
+                                      ? 'Looking up…'
+                                      : entry.active_directory?.status === 'found'
+                                        ? entry.active_directory.name
+                                        : '—'}
+                                  </div>
+                                </div>
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   size="icon"
+                                  className="shrink-0 self-end"
                                   aria-label={`Remove PID ${pidIndex + 1} from check ${selectedCheck.check_index}`}
                                   onClick={() => {
                                     updateCheck(selectedCheck.check_index, (current) => {
@@ -1176,13 +1197,6 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                   <Minus className="h-4 w-4" />
                                 </Button>
                               </div>
-                              <p className="text-xs text-muted-foreground min-h-[1rem]">
-                                {entry.lookingUp
-                                  ? 'Looking up…'
-                                  : entry.active_directory?.status === 'found'
-                                    ? entry.active_directory.name
-                                    : ''}
-                              </p>
                               <FlagChip
                                 flag={flag}
                                 onRetry={
