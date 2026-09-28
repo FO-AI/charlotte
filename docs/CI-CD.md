@@ -98,7 +98,7 @@ backend app setting the old script pushed with `az webapp config appsettings set
 (including `AZURE_AD_CLIENT_SECRET` and `AZURE_AD_REDIRECT_URI`), `AZURE_AGENT_ID`,
 `AZURE_OPENAI_KEY`, `SMALL_MODEL_NAME`, `AZURE_MASTER_SEARCH_INDEX`, `AZURE_STORAGE_*`,
 `EDI_JSON_OUTPUT_CONTAINER`, `AZURE_MASTER_EDI_CONTAINER`, `AZURE_COSMOS_*`,
-`AZURE_ALIGNRX_REPORTS_CONTAINER`, `AZURE_DI_*`. The frontend has no runtime secrets, so
+`AZURE_ALIGNRX_REPORTS_CONTAINER`. The frontend has no runtime secrets, so
 `WEB_ENV_FILE` is not needed. `cd.sh` can set the frontend's non-secret app settings from the
 repository variables above.
 
