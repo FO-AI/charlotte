@@ -292,13 +292,22 @@ function cloneChecks(checks) {
 }
 
 function checksPidsWithKeys(pids) {
-  return (pids || []).map((entry) => ({
-    ...entry,
-    _key: entry._key || nextPidKey(),
-    active_directory: entry.active_directory
-      ? { ...entry.active_directory }
-      : { status: 'not_found', name: null },
-  }));
+  return (pids || []).map((entry) => {
+    const pid = entry.pid ?? '';
+    const digits = String(pid).replace(/\D/g, '');
+    const status = entry.active_directory?.status;
+    const lookedUp =
+      entry._lookedUpFor ||
+      (digits && (status === 'found' || status === 'not_found') ? digits : undefined);
+    return {
+      ...entry,
+      _key: entry._key || nextPidKey(),
+      _lookedUpFor: lookedUp,
+      active_directory: entry.active_directory
+        ? { ...entry.active_directory }
+        : { status: 'not_found', name: null },
+    };
+  });
 }
 
 function ensurePidList(check) {
@@ -489,10 +498,12 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
 
       const currentDigits = normalizePidDigits(currentEntry.pid);
       const adStatus = currentEntry.active_directory?.status;
-      // Skip re-lookup when the PID is unchanged and we already have a definitive AD result.
-      // Re-running can turn "found" into "lookup_failed" under throttling and block Export.
+      // Skip re-lookup only when this exact PID was already looked up successfully
+      // (found/not_found). Do not skip after onChange clears AD to a blank not_found —
+      // that would leave a newly typed PID without a name.
       if (
         digits === currentDigits &&
+        currentEntry._lookedUpFor === digits &&
         !currentEntry.lookingUp &&
         (adStatus === 'found' || adStatus === 'not_found')
       ) {
@@ -544,7 +555,13 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             if (idx < 0) return check;
             // Dropped or retargeted while in flight — do not resurrect or overwrite another PID.
             if (normalizePidDigits(pids[idx].pid) !== digits) return check;
-            pids[idx] = { ...pids[idx], pid: digits, active_directory: ad, lookingUp: false };
+            pids[idx] = {
+              ...pids[idx],
+              pid: digits,
+              active_directory: ad,
+              lookingUp: false,
+              _lookedUpFor: digits,
+            };
             return { ...check, pids };
           },
           { clearVerified: false }
@@ -570,6 +587,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
               pid: digits,
               active_directory: { status: 'lookup_failed', name: null },
               lookingUp: false,
+              _lookedUpFor: undefined,
             };
             return { ...check, pids };
           },
@@ -828,6 +846,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                               pid: value,
                                               active_directory: { status: 'not_found', name: null },
                                               lookingUp: false,
+                                              _lookedUpFor: undefined,
                                             };
                                             return { ...current, pids: next };
                                           });
