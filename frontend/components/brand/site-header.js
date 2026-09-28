@@ -100,7 +100,8 @@ export default function SiteHeader({ variant = 'app' }) {
                 size="lg"
                 onClick={() => login()}
                 disabled={loading}
-                className="site-signin min-h-[3.25rem] px-8 text-2xl font-bold bg-carolina text-white hover:bg-bolin hover:text-white"
+                className="site-signin"
+
               >
                 {loading ? 'Signing in…' : 'Sign in'}
               </Button>

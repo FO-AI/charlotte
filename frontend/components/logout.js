@@ -37,7 +37,7 @@ export default function Logout() {
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            className="min-h-10 min-w-10 gap-2 text-navy hover:bg-cloud"
+            className="h-8 min-h-8 min-w-8 gap-2 px-2 text-navy hover:bg-[rgba(19,41,75,0.12)]"
             aria-label={`Account menu for ${user.given_name || user.name}`}
           >
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-navy text-white">
