@@ -1,9 +1,6 @@
-"""E2E: the "Active Directory Name" column is filled from Microsoft Graph by PID.
+"""E2E: the Active Directory Name on each preview PID comes from Microsoft Graph.
 
-Runs the real route, extraction graph, Graph lookup and Excel writer. The LLM and
-Graph are faked (see outside_scholarships_fakes.py). The PID printed on each check's
-back is looked up as the Entra ID `employeeId`, using the signed-in user's own token.
-The mixed-upload test saves its workbook as a reviewable artifact under tests/artifacts/.
+Runs the real route, extraction graph and Graph lookup. The LLM and Graph are faked.
 """
 
 from io import BytesIO
@@ -14,11 +11,15 @@ from openpyxl import load_workbook
 
 from outside_scholarships_fakes import (
     BACK,
-    FIRST_DATA_ROW,
     FRONT,
-    HEADER_ROW,
+    LOOKUP_ROUTE,
+    REVIEW_FIRST_DATA_ROW,
+    REVIEW_HEADER_ROW,
     FakeGraph,
+    export_excel,
     graph_user,
+    preview_payload,
+    preview_pid_and_directory_name_rows,
     upload,
 )
 
@@ -30,38 +31,16 @@ _JANE_PID = "730000001"
 _JANE = graph_user(_JANE_PID, given_name="Jane", surname="Doe", display_name="Jane Doe")
 
 
-def _worksheet(response):
-    return load_workbook(BytesIO(response.content)).active
-
-
-def _pid_and_directory_name_rows(response):
-    """(PID, Active Directory Name) for every data row, blanks as ""."""
-    return [
-        (pid or "", directory_name or "")
-        for pid, _amount, _name, directory_name, *_ in _worksheet(response).iter_rows(
-            min_row=FIRST_DATA_ROW, values_only=True
-        )
-    ]
-
-
 def _all_requested_pids(graph):
     return [pid for request in graph.requests for pid in graph.requested_pids(request)]
 
 
-def test_active_directory_name_column_follows_check_name(client, override_auth, app):
+def test_preview_pids_include_active_directory_status(client, override_auth, app):
     response, _ = upload(client, app, [FRONT])
 
     assert response.status_code == 200, response.text
-    assert [cell.value for cell in _worksheet(response)[HEADER_ROW]] == [
-        "PID",
-        "Amount",
-        "Name",
-        "Active Directory Name",
-        "Aid year",
-        "Aid term",
-        "Provider",
-        "Scholarship name",
-    ]
+    payload = preview_payload(response)
+    assert payload["checks"][0]["pids"] == []
 
 
 def test_pid_found_in_directory_gets_last_first_name(client, override_auth, app):
@@ -70,7 +49,9 @@ def test_pid_found_in_directory_gets_last_first_name(client, override_auth, app)
     response, _ = upload(client, app, [FRONT, BACK], back_pids={1001: _JANE_PID}, graph=graph)
 
     assert response.status_code == 200, response.text
-    assert _pid_and_directory_name_rows(response) == [(_JANE_PID, "Doe, Jane")]
+    assert preview_pid_and_directory_name_rows(response) == [(_JANE_PID, "Doe, Jane")]
+    entry = preview_payload(response)["checks"][0]["pids"][0]
+    assert entry["active_directory"] == {"status": "found", "name": "Doe, Jane"}
 
 
 def test_pid_missing_from_directory_is_blank(client, override_auth, app):
@@ -79,7 +60,8 @@ def test_pid_missing_from_directory_is_blank(client, override_auth, app):
     response, _ = upload(client, app, [FRONT, BACK], back_pids={1001: "730009999"}, graph=graph)
 
     assert response.status_code == 200, response.text
-    assert _pid_and_directory_name_rows(response) == [("730009999", "")]
+    assert preview_pid_and_directory_name_rows(response) == [("730009999", "")]
+    assert preview_payload(response)["checks"][0]["pids"][0]["active_directory"]["status"] == "not_found"
 
 
 def test_check_without_pid_is_blank_and_not_looked_up(client, override_auth, app):
@@ -88,7 +70,7 @@ def test_check_without_pid_is_blank_and_not_looked_up(client, override_auth, app
     response, _ = upload(client, app, [FRONT, BACK, FRONT], back_pids={1001: _JANE_PID}, graph=graph)
 
     assert response.status_code == 200, response.text
-    assert _pid_and_directory_name_rows(response) == [(_JANE_PID, "Doe, Jane"), ("", "")]
+    assert preview_pid_and_directory_name_rows(response) == [(_JANE_PID, "Doe, Jane"), ("", "")]
     assert _all_requested_pids(graph) == [_JANE_PID]
 
 
@@ -98,7 +80,7 @@ def test_upload_without_pids_makes_no_graph_request(client, override_auth, app):
     response, _ = upload(client, app, [FRONT, FRONT], graph=graph)
 
     assert response.status_code == 200, response.text
-    assert _pid_and_directory_name_rows(response) == [("", ""), ("", "")]
+    assert preview_pid_and_directory_name_rows(response) == [("", ""), ("", "")]
     assert graph.requests == []
 
 
@@ -110,7 +92,7 @@ def test_repeated_pid_is_looked_up_once_and_filled_on_every_row(client, override
     )
 
     assert response.status_code == 200, response.text
-    assert _pid_and_directory_name_rows(response) == [(_JANE_PID, "Doe, Jane"), (_JANE_PID, "Doe, Jane")]
+    assert preview_pid_and_directory_name_rows(response) == [(_JANE_PID, "Doe, Jane"), (_JANE_PID, "Doe, Jane")]
     assert _all_requested_pids(graph) == [_JANE_PID]
 
 
@@ -124,7 +106,7 @@ def test_more_than_fifteen_pids_are_split_across_requests(client, override_auth,
     response, _ = upload(client, app, [FRONT, BACK] * check_count, back_pids=pids, graph=graph)
 
     assert response.status_code == 200, response.text
-    assert _pid_and_directory_name_rows(response) == [
+    assert preview_pid_and_directory_name_rows(response) == [
         (pid, f"Surname{pid[-2:]}, Given{pid[-2:]}") for pid in pids.values()
     ]
     assert len(graph.requests) == 2
@@ -154,7 +136,7 @@ def test_lookup_uses_signed_in_users_token_and_employee_id_filter(client, overri
         pytest.param(FakeGraph(network_error=True), "unreachable", id="network-down"),
     ],
 )
-def test_graph_failure_still_returns_workbook_marked_lookup_failed(
+def test_graph_failure_still_returns_preview_marked_lookup_failed(
     client, override_auth, app, caplog, graph, logged_reason
 ):
     response, _ = upload(
@@ -162,17 +144,15 @@ def test_graph_failure_still_returns_workbook_marked_lookup_failed(
     )
 
     assert response.status_code == 200, response.text
-    assert _pid_and_directory_name_rows(response) == [
+    assert preview_pid_and_directory_name_rows(response) == [
         (_JANE_PID, _LOOKUP_FAILED),
         ("730000002", _LOOKUP_FAILED),
         ("", ""),
     ]
-    rows = list(_worksheet(response).iter_rows(min_row=FIRST_DATA_ROW, values_only=True))
-    assert [(amount, aid_term) for _pid, amount, _name, _directory_name, _year, aid_term, *_ in rows] == [
-        (100.0, "F"),
-        (200.0, "F"),
-        (300.0, "F"),
-    ]
+    checks = preview_payload(response)["checks"]
+    assert checks[0]["pids"][0]["active_directory"]["status"] == "lookup_failed"
+    assert checks[1]["pids"][0]["active_directory"]["status"] == "lookup_failed"
+    assert [float(check["amount"]) for check in checks] == [100.0, 200.0, 300.0]
     assert logged_reason in caplog.text
 
 
@@ -191,11 +171,100 @@ def test_incomplete_name_falls_back_to_display_name(client, override_auth, app, 
     response, _ = upload(client, app, [FRONT, BACK], back_pids={1001: _JANE_PID}, graph=graph)
 
     assert response.status_code == 200, response.text
-    assert _pid_and_directory_name_rows(response) == [(_JANE_PID, "Sam Rivera")]
+    assert preview_pid_and_directory_name_rows(response) == [(_JANE_PID, "Sam Rivera")]
+
+
+def test_active_directory_lookup_endpoint(client, override_auth, app, bearer_token):
+    from api.dependencies import get_azure_client, get_graph_user_directory
+    from services.azure_services import GraphUserDirectory
+    from types import SimpleNamespace
+
+    graph = FakeGraph({_JANE_PID: _JANE})
+    app.dependency_overrides[get_azure_client] = lambda: SimpleNamespace(llm=None)
+    app.dependency_overrides[get_graph_user_directory] = lambda: GraphUserDirectory(transport=graph.transport)
+
+    response = client.post(LOOKUP_ROUTE, json={"pids": [_JANE_PID, "730009999"]})
+
+    assert response.status_code == 200, response.text
+    by_pid = {entry["pid"]: entry["active_directory"] for entry in response.json()["pids"]}
+    assert by_pid[_JANE_PID] == {"status": "found", "name": "Doe, Jane"}
+    assert by_pid["730009999"] == {"status": "not_found", "name": None}
+    assert graph.requests[0].headers["Authorization"] == f"Bearer {bearer_token}"
+
+
+def test_export_writes_reviewed_by_and_audit_columns(client, override_auth, app):
+    from types import SimpleNamespace
+
+    from api.dependencies import get_azure_client, get_graph_user_directory
+    from services.azure_services import GraphUserDirectory
+
+    graph = FakeGraph({_JANE_PID: _JANE})
+    response, _ = upload(client, app, [FRONT, BACK], back_pids={1001: _JANE_PID}, graph=graph)
+    preview = preview_payload(response)
+
+    export_body = {
+        "aid_year": preview["aid_year"],
+        "aid_term": preview["aid_term"],
+        "checks": [
+            {
+                "check_index": 1,
+                "extracted": {
+                    "amount": "100.00",
+                    "check_number": "1001",
+                    "name": "Payee 1001",
+                    "provider": "Provider 1001",
+                    "scholarship_name": "Scholarship 1001",
+                    "pids": [{"pid": _JANE_PID, "active_directory": {"status": "found", "name": "Spoofed, Name"}}],
+                },
+                "reviewed": {
+                    "amount": "1 250.00",
+                    "check_number": "1001",
+                    "name": "=HYPERLINK(\"http://evil\")",
+                    "provider": "Provider 1001",
+                    "scholarship_name": "Scholarship 1001",
+                    "pids": [
+                        {"pid": _JANE_PID, "active_directory": {"status": "found", "name": "Spoofed, Name"}},
+                        {"pid": "730000099", "active_directory": {"status": "found", "name": "Also Spoofed"}},
+                    ],
+                },
+                "verified": True,
+            }
+        ],
+    }
+    app.dependency_overrides[get_azure_client] = lambda: SimpleNamespace(llm=None)
+    app.dependency_overrides[get_graph_user_directory] = lambda: GraphUserDirectory(transport=graph.transport)
+
+    export_response = client.post("/api/banking/outside-scholarships/export", json=export_body)
+    assert export_response.status_code == 200, export_response.text
+    worksheet = load_workbook(BytesIO(export_response.content)).active
+    assert [cell.value for cell in worksheet[REVIEW_HEADER_ROW]][:11] == [
+        "PID",
+        "Amount",
+        "Name",
+        "Active Directory Name",
+        "Aid year",
+        "Aid term",
+        "Provider",
+        "Scholarship name",
+        "Edited",
+        "Verified",
+        "Extracted values",
+    ]
+    assert worksheet["A4"].value == "Reviewed by"
+    rows = list(worksheet.iter_rows(min_row=REVIEW_FIRST_DATA_ROW, values_only=True))
+    assert rows[0][0] == _JANE_PID
+    assert rows[0][1] == 1250.0
+    assert rows[0][2] == "'=HYPERLINK(\"http://evil\")"
+    assert rows[0][3] == "Doe, Jane"
+    assert rows[0][8] == "Yes"
+    assert rows[0][9] == "Yes"
+    assert "Amount: 100.00" in rows[0][10]
+    assert "Added PID: 730000099" in rows[0][10]
+    assert rows[1][0] == "730000099"
+    assert not rows[1][3]
 
 
 def test_mixed_upload_produces_reviewable_workbook_artifact(client, override_auth, app):
-    """Every outcome in one workbook, saved to tests/artifacts/ for a human to open."""
     graph = FakeGraph(
         {
             _JANE_PID: _JANE,
@@ -209,9 +278,7 @@ def test_mixed_upload_produces_reviewable_workbook_artifact(client, override_aut
     response, _ = upload(client, app, sides, back_pids=back_pids, graph=graph)
 
     assert response.status_code == 200, response.text
-    _ARTIFACT_PATH.parent.mkdir(exist_ok=True)
-    _ARTIFACT_PATH.write_bytes(response.content)
-    assert _pid_and_directory_name_rows(response) == [
+    assert preview_pid_and_directory_name_rows(response) == [
         (_JANE_PID, "Doe, Jane"),
         ("", ""),
         ("730009999", ""),
@@ -219,4 +286,21 @@ def test_mixed_upload_produces_reviewable_workbook_artifact(client, override_aut
         (_JANE_PID, "Doe, Jane"),
         ("730000006", "Lee, Chris"),
     ]
-    assert sorted(_all_requested_pids(graph)) == ["730000001", "730000004", "730000006", "730009999"]
+    export_response = export_excel(
+        client,
+        app,
+        preview_payload(response),
+        verified_indexes={2},
+        graph=graph,
+    )
+    assert export_response.status_code == 200, export_response.text
+    _ARTIFACT_PATH.parent.mkdir(exist_ok=True)
+    _ARTIFACT_PATH.write_bytes(export_response.content)
+    worksheet = load_workbook(BytesIO(export_response.content)).active
+    excel_pids = [
+        pid or ""
+        for pid, *_ in worksheet.iter_rows(min_row=REVIEW_FIRST_DATA_ROW, values_only=True)
+    ]
+    assert excel_pids == [_JANE_PID, "", "730009999", "730000004", _JANE_PID, "730000006"]
+    # Upload + export each look up AD; compare the distinct PIDs asked of Graph.
+    assert sorted(set(_all_requested_pids(graph))) == ["730000001", "730000004", "730000006", "730009999"]

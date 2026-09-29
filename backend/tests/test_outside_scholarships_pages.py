@@ -8,23 +8,11 @@ each check: fronts carry the check number and amount, backs carry the PID.
 import json
 
 import pytest
-from openpyxl import load_workbook
 
-from outside_scholarships_fakes import BACK, FIRST_DATA_ROW, FRONT, default_pid, upload
+from outside_scholarships_fakes import BACK, FRONT, default_pid, preview_pid_amount_rows, upload
 
 # A classification batch is sent up to this many times before the upload fails.
 _CLASSIFICATION_ATTEMPTS = 3
-
-
-def _excel_rows(response, tmp_path):
-    """Save the returned workbook for inspection and return (PID, amount) per data row."""
-    workbook_path = tmp_path / "outside_scholarships.xlsx"
-    workbook_path.write_bytes(response.content)
-    worksheet = load_workbook(workbook_path).active
-    return [
-        (pid or "", amount)
-        for pid, amount, *_ in worksheet.iter_rows(min_row=FIRST_DATA_ROW, values_only=True)
-    ]
 
 
 @pytest.mark.parametrize(
@@ -63,12 +51,12 @@ def _excel_rows(response, tmp_path):
     ],
 )
 def test_pages_group_into_checks_by_detected_side(
-    client, override_auth, app, tmp_path, sides, expected_rows, expected_image_counts
+    client, override_auth, app, sides, expected_rows, expected_image_counts
 ):
     response, llm = upload(client, app, sides)
 
     assert response.status_code == 200, response.text
-    assert _excel_rows(response, tmp_path) == expected_rows
+    assert preview_pid_amount_rows(response) == expected_rows
     assert llm.image_counts_by_check() == expected_image_counts
 
 
@@ -111,17 +99,8 @@ def test_invalid_classifier_reply_fails_before_extraction(client, override_auth,
 
 @pytest.mark.parametrize("failed_attempts", [1, _CLASSIFICATION_ATTEMPTS - 1])
 def test_invalid_classifier_reply_is_retried_for_that_batch(
-    client, override_auth, app, tmp_path, caplog, failed_attempts
+    client, override_auth, app, caplog, failed_attempts
 ):
-    """On real uploads the model sometimes leaves a page out of a batch's reply.
-
-    Ways the retry can fail, each checked here:
-    1. One bad reply still fails the whole upload with a 500.
-    2. The retry sends different pages, or re-sends batches whose replies were fine.
-    3. A retried batch's sides land on the wrong pages, so checks get the wrong fronts and backs.
-    4. The retry is silent, so a model that gets worse over time goes unnoticed.
-    (Retrying without limit is covered by test_invalid_classifier_reply_fails_before_extraction.)
-    """
     sides = [FRONT, BACK] * 6
     second_batch = [11, 12]
     second_batch_replies = []
@@ -138,11 +117,11 @@ def test_invalid_classifier_reply_is_retried_for_that_batch(
 
     assert response.status_code == 200, response.text
     assert sorted(llm.classified_pages) == [list(range(1, 11))] + [second_batch] * (failed_attempts + 1)
-    assert [pid for pid, _ in _excel_rows(response, tmp_path)] == [default_pid(1000 + i) for i in range(1, 7)]
+    assert [pid for pid, _ in preview_pid_amount_rows(response)] == [default_pid(1000 + i) for i in range(1, 7)]
     assert "retrying" in caplog.text
 
 
-def test_classifier_formatting_variations_are_accepted(client, override_auth, app, tmp_path):
+def test_classifier_formatting_variations_are_accepted(client, override_auth, app):
     sides = [FRONT, BACK, FRONT]
 
     def loosely_formatted_reply(pages):
@@ -153,15 +132,32 @@ def test_classifier_formatting_variations_are_accepted(client, override_auth, ap
     response, _ = upload(client, app, sides, classify_reply=loosely_formatted_reply)
 
     assert response.status_code == 200, response.text
-    assert _excel_rows(response, tmp_path) == [(default_pid(1001), 100.0), ("", 200.0)]
+    assert preview_pid_amount_rows(response) == [(default_pid(1001), 100.0), ("", 200.0)]
 
 
-def test_pages_beyond_one_batch_keep_pdf_page_numbers(client, override_auth, app, tmp_path):
+def test_pages_beyond_one_batch_keep_pdf_page_numbers(client, override_auth, app):
     sides = [FRONT, BACK] * 6
 
     response, llm = upload(client, app, sides)
 
     assert response.status_code == 200, response.text
-    # Batches are sent concurrently, so compare them independent of arrival order.
     assert sorted(llm.classified_pages) == [list(range(1, 11)), [11, 12]]
-    assert [pid for pid, _ in _excel_rows(response, tmp_path)] == [default_pid(1000 + i) for i in range(1, 7)]
+    assert [pid for pid, _ in preview_pid_amount_rows(response)] == [default_pid(1000 + i) for i in range(1, 7)]
+
+
+def test_preview_includes_page_numbers_and_jpeg_images(client, override_auth, app):
+    response, _ = upload(client, app, [FRONT, BACK, FRONT])
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["aid_term"] == "F"
+    assert len(payload["checks"]) == 2
+    first, second = payload["checks"]
+    assert first["front_page"] == 1
+    assert first["back_page"] == 2
+    assert first["front_image"].startswith("data:image/jpeg;base64,")
+    assert first["back_image"].startswith("data:image/jpeg;base64,")
+    assert second["front_page"] == 3
+    assert second["back_page"] is None
+    assert second["front_image"].startswith("data:image/jpeg;base64,")
+    assert second["back_image"] is None

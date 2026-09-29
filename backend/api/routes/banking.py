@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form
-from typing import Dict, List, Optional
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, Body
+from typing import Any, Dict, List, Optional
 from utils.auth import get_bearer_token
 from utils.rba import check_banking_or_admin_permissions
 from config import get_logger
@@ -7,21 +7,23 @@ from services.banking import BankingUploadService
 from services.azure_services import AzureClient, GraphUserDirectory
 from api.dependencies import get_azure_client, get_graph_user_directory
 from services.banking import OutsideScholarshipService
+
 logger = get_logger(__name__)
 router = APIRouter(tags=["banking"])
 
-@router.post("/api/banking/upload-files")
-async def upload_banking_files(files: List[UploadFile] = File(...), user: Dict = Depends(check_banking_or_admin_permissions), azure_client: AzureClient = Depends(get_azure_client)):
-    """Upload banking files"""
 
-    """
-    Accepts multiple PDF files, extracts data via Azure OpenAI, and returns an Excel file.
-    """
+@router.post("/api/banking/upload-files")
+async def upload_banking_files(
+    files: List[UploadFile] = File(...),
+    user: Dict = Depends(check_banking_or_admin_permissions),
+    azure_client: AzureClient = Depends(get_azure_client),
+):
+    """Upload banking files and return a consolidated Excel download."""
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded.")
     upload_service = BankingUploadService(azure_client)
-
     return await upload_service.upload_and_analyze_files(files)
+
 
 @router.post("/api/banking/outside-scholarships")
 async def outside_scholarships(
@@ -33,27 +35,9 @@ async def outside_scholarships(
     user_directory: GraphUserDirectory = Depends(get_graph_user_directory),
     graph_access_token: str = Depends(get_bearer_token),
 ):
-    """Upload outside scholarship check PDF"""
+    """Extract outside-scholarship checks and return a review preview (JSON).
 
-    """
-    Accepts a single PDF file containing scanned outside-scholarship check pages.
-
-    Each check is its front page, followed by its back page when one was scanned. Checks
-    without a back are fine (e.g. front, back, front, front, back = three checks); each
-    page's side is detected, so the page count does not need to be even.
-
-    The multipart field is still named "files" (list of one) to match the shared
-    upload plumbing, but exactly one PDF is expected.
-
-    Calls OutsideScholarshipService to analyze the file. Each PID's "Active Directory Name"
-    is looked up in Entra ID (employeeId) with the caller's own Microsoft Graph token.
-
-    Optional multipart form fields:
-    - aid_year: 4-digit aid year (defaults to current year)
-    - aid_term: "F" or "S" (defaults to "F")
-
-    returns:
-    - Excel file download
+    Does not download Excel. The client opens the review UI, then calls export.
     """
     if not files:
         raise HTTPException(status_code=400, detail="No file uploaded.")
@@ -68,10 +52,56 @@ async def outside_scholarships(
         raise HTTPException(status_code=400, detail="Aid term must be 'F' or 'S'.")
 
     outside_scholarship_service = OutsideScholarshipService(azure_client, user_directory)
-
     return await outside_scholarship_service.upload_and_analyze_files(
         files,
         graph_access_token=graph_access_token,
         aid_year=aid_year,
         aid_term=normalized_term,
+    )
+
+
+@router.post("/api/banking/outside-scholarships/active-directory-names")
+async def outside_scholarships_active_directory_names(
+    body: Dict[str, Any] = Body(...),
+    user: Dict = Depends(check_banking_or_admin_permissions),
+    azure_client: AzureClient = Depends(get_azure_client),
+    user_directory: GraphUserDirectory = Depends(get_graph_user_directory),
+    graph_access_token: str = Depends(get_bearer_token),
+):
+    """Look up Active Directory names for one or more PIDs during review."""
+    raw_pids = body.get("pids") if isinstance(body, dict) else None
+    if not isinstance(raw_pids, list):
+        raise HTTPException(status_code=400, detail="Body must include a pids array.")
+    pids = [str(pid).strip() for pid in raw_pids if pid is not None and str(pid).strip()]
+    service = OutsideScholarshipService(azure_client, user_directory)
+    return await service.lookup_active_directory_for_pids(pids, graph_access_token)
+
+
+@router.post("/api/banking/outside-scholarships/export")
+async def outside_scholarships_export(
+    body: Dict[str, Any] = Body(...),
+    user: Dict = Depends(check_banking_or_admin_permissions),
+    azure_client: AzureClient = Depends(get_azure_client),
+    user_directory: GraphUserDirectory = Depends(get_graph_user_directory),
+    graph_access_token: str = Depends(get_bearer_token),
+):
+    """Export reviewed outside-scholarship checks to Excel.
+
+    Active Directory names are re-resolved on the server so the workbook does not
+    trust client-supplied directory results.
+    """
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Invalid export payload.")
+    reviewed_by = (
+        user.get("email")
+        or user.get("preferred_username")
+        or user.get("upn")
+        or user.get("id")
+        or ""
+    )
+    service = OutsideScholarshipService(azure_client, user_directory)
+    return await service.export_reviewed(
+        body,
+        reviewed_by=str(reviewed_by),
+        graph_access_token=graph_access_token,
     )

@@ -170,3 +170,27 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
+
+/** Minimal auth context for Playwright / local harness pages (no MSAL). */
+export function TestAuthProvider({ children, value }) {
+  const defaults = {
+    user: { email: 'e2e@example.com', name: 'E2E User' },
+    loading: false,
+    error: null,
+    login: async () => {},
+    logout: async () => {},
+    getAuthHeaders: async () => ({ Authorization: 'Bearer e2e-token' }),
+    getAccessToken: async () => 'e2e-token',
+    isAuthenticated: () => true,
+    setError: () => {},
+    department: 'Banking',
+    isAccounting: false,
+    isBanking: true,
+    isAdmin: false,
+  };
+  return (
+    <AuthContext.Provider value={{ ...defaults, ...value }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}

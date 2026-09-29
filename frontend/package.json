@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint app components hooks lib"
+    "lint": "eslint app components hooks lib",
+    "test:e2e": "playwright test",
+    "test:e2e:outside-scholarships": "playwright test e2e/outside-scholarships-review.spec.js"
   },
   "dependencies": {
     "@azure/cosmos": "^4.5.1",
@@ -68,6 +70,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.51.0",
     "@types/node": "22.15.29",
     "@types/react": "19.1.6",
     "autoprefixer": "^10.4.21",

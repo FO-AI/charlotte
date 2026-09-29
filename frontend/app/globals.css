@@ -46,7 +46,7 @@
     --chart-5: 207 14% 40%;
     --radius: 0.25rem;
     --font-sans: "Open Sans", Arial, Helvetica, sans-serif;
-    --chrome-offset: 13rem;
+    --chrome-offset: 10rem;
   }
 
   .dark,
@@ -302,34 +302,34 @@
 
   .site-masthead {
     background: var(--color-white);
-    padding-block: 20px;
+    padding-block: 8px;
   }
 
   .site-masthead-inner {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1.5rem 2.5rem;
-    min-height: 100px;
+    gap: 1rem 1.5rem;
+    min-height: 80px;
   }
 
   .site-identity {
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 0.15rem;
+    gap: 0.1rem;
     text-decoration: none;
     color: var(--color-navy);
-    line-height: 1.3;
+    line-height: 1.2;
     min-width: 0;
   }
 
   .site-identity .site-title {
     margin: 0;
-    font-size: clamp(1.75rem, 2.8vw, 2.125rem);
+    font-size: 1.25rem;
     font-weight: 700;
-    line-height: 1.3;
-    letter-spacing: 0.5px;
+    line-height: 1.2;
+    letter-spacing: 0.3px;
     overflow-wrap: normal;
   }
 
@@ -339,17 +339,17 @@
   }
 
   .site-title {
-    font-size: clamp(1.75rem, 2.8vw, 2.125rem);
+    font-size: 1.25rem;
     font-weight: 700;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
     color: var(--color-navy);
   }
 
   .site-tagline {
-    font-size: clamp(1.3125rem, 2.1vw, 1.6rem);
+    font-size: 0.875rem;
     font-weight: 400;
-    line-height: 1.3;
-    letter-spacing: 0.5px;
+    line-height: 1.2;
+    letter-spacing: 0.2px;
     color: var(--color-navy);
   }
 
@@ -357,13 +357,13 @@
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    gap: 0.75rem;
+    gap: 0.5rem;
   }
 
   .site-signin {
-    min-height: 3.25rem;
-    padding-inline: 1.75rem;
-    font-size: 24px;
+    min-height: 2.25rem;
+    padding-inline: 1rem;
+    font-size: 0.9375rem;
     font-weight: 700;
     line-height: 1.2;
     background-color: var(--color-carolina);
@@ -870,20 +870,20 @@
 @media (max-width: 767px) {
   .site-masthead-inner {
     min-height: 0;
-    gap: 1rem;
+    gap: 0.75rem;
   }
 
   .site-masthead {
-    padding-block: 1.25rem;
+    padding-block: 8px;
   }
 
   .site-title,
   .site-identity .site-title {
-    font-size: 1.75rem;
+    font-size: 1.125rem;
   }
 
   .site-tagline {
-    font-size: 1.3125rem;
+    font-size: 0.8125rem;
   }
 
   .utility-bar-home span {

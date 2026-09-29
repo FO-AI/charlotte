@@ -5,6 +5,8 @@ from typing import Annotated, Dict, List, Optional, TypedDict
 class CheckPair(TypedDict):
     check_index: int
     pair_pdf_bytes: bytes               # the check's front page, then its back when one was scanned
+    front_page: int                     # 1-based PDF page number of the front
+    back_page: Optional[int]            # 1-based PDF page number of the back, or None
 
 
 class OrchestratorState(TypedDict):
@@ -20,3 +22,5 @@ class OrchestratorState(TypedDict):
 class WorkerState(TypedDict):
     check_index: int
     pair_pdf_bytes: bytes               # the check's front page, then its back when one was scanned
+    front_page: int
+    back_page: Optional[int]

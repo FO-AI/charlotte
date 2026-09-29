@@ -25,8 +25,12 @@ from services.banking.outside_scholarships.nodes import PYMUPDF_LOCK
 FRONT = "front"
 BACK = "back"
 ROUTE = "/api/banking/outside-scholarships"
+EXPORT_ROUTE = "/api/banking/outside-scholarships/export"
+LOOKUP_ROUTE = "/api/banking/outside-scholarships/active-directory-names"
 FIRST_DATA_ROW = 6
+REVIEW_FIRST_DATA_ROW = 7
 HEADER_ROW = 5
+REVIEW_HEADER_ROW = 6
 FIRST_CHECK_NUMBER = 1001
 
 _FILTER_VALUE_RE = re.compile(r"'((?:[^']|'')*)'")
@@ -266,7 +270,7 @@ def upload(client, app, sides, back_pids=None, graph=None, **llm_options):
 
     The fake Azure client has an LLM and nothing else, so no Document Intelligence is
     available. Without `graph`, conftest's empty offline directory answers the lookup.
-    `llm_options` go to FakeLLM.
+    `llm_options` go to FakeLLM. On success the response body is the review preview JSON.
     """
     from api.dependencies import get_azure_client, get_graph_user_directory
     from services.azure_services import GraphUserDirectory
@@ -283,3 +287,88 @@ def upload(client, app, sides, back_pids=None, graph=None, **llm_options):
         data={"aid_term": "F"},
     )
     return response, llm
+
+
+def preview_payload(response):
+    assert response.headers["content-type"].startswith("application/json")
+    return response.json()
+
+
+def preview_pid_amount_rows(response):
+    """(PID, amount) rows implied by the preview: one row per PID, or one blank-PID row."""
+    rows = []
+    for check in preview_payload(response)["checks"]:
+        amount = float(check["amount"]) if check.get("amount") is not None else 0.0
+        pids = check.get("pids") or []
+        if not pids:
+            rows.append(("", amount))
+            continue
+        for entry in pids:
+            rows.append((entry.get("pid") or "", amount))
+    return rows
+
+
+def ad_display_name(entry):
+    ad = entry.get("active_directory") or {}
+    if ad.get("status") == "found":
+        return ad.get("name") or ""
+    if ad.get("status") == "lookup_failed":
+        return "Lookup failed"
+    return ""
+
+
+def preview_pid_and_directory_name_rows(response):
+    rows = []
+    for check in preview_payload(response)["checks"]:
+        pids = check.get("pids") or []
+        if not pids:
+            rows.append(("", ""))
+            continue
+        for entry in pids:
+            rows.append((entry.get("pid") or "", ad_display_name(entry)))
+    return rows
+
+
+def export_payload_from_preview(preview, verified_indexes=None):
+    """Build an export body that treats preview values as both extracted and reviewed."""
+    verified_indexes = set(verified_indexes or [])
+    checks = []
+    for check in preview.get("checks") or []:
+        index = check.get("check_index")
+        extracted_fields = {
+            "amount": check.get("amount"),
+            "check_number": check.get("check_number"),
+            "name": check.get("name"),
+            "provider": check.get("provider"),
+            "scholarship_name": check.get("scholarship_name"),
+            "pids": list(check.get("pids") or []),
+        }
+        checks.append(
+            {
+                "check_index": index,
+                "extracted": extracted_fields,
+                "reviewed": {
+                    **extracted_fields,
+                    "pids": [dict(entry) for entry in (check.get("pids") or [])],
+                },
+                "verified": index in verified_indexes,
+            }
+        )
+    return {
+        "aid_year": preview.get("aid_year"),
+        "aid_term": preview.get("aid_term"),
+        "checks": checks,
+    }
+
+
+def export_excel(client, app, preview, verified_indexes=None, graph=None):
+    """POST the export route for a preview payload; returns the Excel response."""
+    from api.dependencies import get_azure_client, get_graph_user_directory
+    from services.azure_services import GraphUserDirectory
+
+    app.dependency_overrides[get_azure_client] = lambda: SimpleNamespace(llm=None)
+    if graph is not None:
+        app.dependency_overrides[get_graph_user_directory] = lambda: GraphUserDirectory(transport=graph.transport)
+
+    response = client.post(EXPORT_ROUTE, json=export_payload_from_preview(preview, verified_indexes))
+    return response
