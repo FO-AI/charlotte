@@ -59,7 +59,7 @@ function ExtractingPanel({ statusMessage, fileName }) {
   );
 }
 
-export default function OutsideScholarshipsUploadModal({ isOpen, onClose, returnFocusRef}) {
+export default function OutsideScholarshipsUploadModal({ isOpen, onClose, returnFocusRef }) {
   const { getAuthHeaders } = useAuth();
   const apiClientRef = useRef(null);
   if (!apiClientRef.current) {
@@ -98,7 +98,7 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
       window.clearInterval(id);
       setStatusMessage('');
     };
-  }, [uploading]);
+  }, [extracting]);
 
   const resetState = () => {
     setPhase('idle');
@@ -205,7 +205,7 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
       }}
     >
       <DialogContent
-        className= extracting ? 'sm:max-w-2xl' : 'sm:max-w-xl'
+        className={extracting ? 'sm:max-w-2xl' : 'sm:max-w-xl'}
         onInteractOutside={(event) => {
           if (extracting) event.preventDefault();
         }}
@@ -218,7 +218,7 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
             <FileCheck className="h-5 w-5" />
             Upload Outside Scholarship Checks
           </DialogTitle>
-          {!uploading ? (
+          {!extracting ? (
             <DialogDescription>
               Upload one PDF of scanned checks. Put each check&apos;s front first, followed by
               its back if you have it. Checks without a back are fine.
@@ -280,7 +280,7 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
                     maxLength={4}
                     value={aidYear}
                     onChange={(e) => setAidYear(e.target.value)}
-                    className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline"
+                    className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy"
                     placeholder="YYYY"
                   />
                 </div>
@@ -289,7 +289,7 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
                   <select
                     value={aidTerm}
                     onChange={(e) => setAidTerm(e.target.value)}
-                    className="w-full rounded-md border px-3 py-2 text-sm bg-background focus-visible:outline"
+                    className="w-full rounded-md border px-3 py-2 text-sm bg-background focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy"
                   >
                     <option value="F">F</option>
                     <option value="S">S</option>
@@ -300,12 +300,6 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
               {errorMessage && (
                 <Alert className="border-red-200 bg-red-50">
                   <AlertDescription className="text-red-800">{errorMessage}</AlertDescription>
-                </Alert>
-              )}
-
-              {successMessage && (
-                <Alert className="border-green-200 bg-green-50">
-                  <AlertDescription className="text-green-800">{successMessage}</AlertDescription>
                 </Alert>
               )}
             </div>
