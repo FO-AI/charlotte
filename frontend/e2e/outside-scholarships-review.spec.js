@@ -9,74 +9,82 @@ const preview = JSON.parse(
 const FIXED_PID = '123456789';
 const AD_NAME = 'Example, Alex';
 
+async function stubReviewApis(page, previewBody) {
+  await page.route('**/api/banking/outside-scholarships/active-directory-names', async (route) => {
+    const body = route.request().postDataJSON();
+    const pids = Array.isArray(body?.pids) ? body.pids : [];
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        pids: pids.map((pid) => ({
+          pid,
+          active_directory:
+            pid === FIXED_PID
+              ? { status: 'found', name: AD_NAME }
+              : { status: 'not_found', name: null },
+        })),
+      }),
+    });
+  });
+
+  await page.route('**/api/banking/outside-scholarships/export', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      headers: {
+        'content-disposition': 'attachment; filename="outside_scholarships_reviewed.xlsx"',
+      },
+      body: Buffer.from('PK-fake-xlsx'),
+    });
+  });
+
+  await page.route('**/api/banking/outside-scholarships', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue();
+      return;
+    }
+    // Exclude nested routes handled above
+    const url = route.request().url();
+    if (url.includes('active-directory-names') || url.includes('/export')) {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(previewBody),
+    });
+  });
+}
+
+async function uploadAndOpenReview(page) {
+  await page.goto('/e2e/outside-scholarships');
+
+  await expect(page.getByRole('heading', { name: /Upload Outside Scholarship Checks/i })).toBeVisible();
+
+  const pdfBytes = Buffer.from(
+    '%PDF-1.1\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n',
+    'utf8'
+  );
+  await page.setInputFiles('input[type="file"]', {
+    name: 'sample-checks.pdf',
+    mimeType: 'application/pdf',
+    buffer: pdfBytes,
+  });
+
+  await page.getByRole('button', { name: 'Upload Check PDF' }).click();
+
+  await expect(page.getByRole('dialog', { name: 'Review outside scholarship checks' })).toBeVisible({
+    timeout: 15_000,
+  });
+}
+
 test.describe('Outside scholarships review flow', () => {
   test('upload → fix PID → AD name → export', async ({ page }) => {
-    await page.route('**/api/banking/outside-scholarships/active-directory-names', async (route) => {
-      const body = route.request().postDataJSON();
-      const pids = Array.isArray(body?.pids) ? body.pids : [];
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          pids: pids.map((pid) => ({
-            pid,
-            active_directory:
-              pid === FIXED_PID
-                ? { status: 'found', name: AD_NAME }
-                : { status: 'not_found', name: null },
-          })),
-        }),
-      });
-    });
+    await stubReviewApis(page, preview);
+    await uploadAndOpenReview(page);
 
-    await page.route('**/api/banking/outside-scholarships/export', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        headers: {
-          'content-disposition': 'attachment; filename="outside_scholarships_reviewed.xlsx"',
-        },
-        body: Buffer.from('PK-fake-xlsx'),
-      });
-    });
-
-    await page.route('**/api/banking/outside-scholarships', async (route) => {
-      if (route.request().method() !== 'POST') {
-        await route.continue();
-        return;
-      }
-      // Exclude nested routes handled above
-      const url = route.request().url();
-      if (url.includes('active-directory-names') || url.includes('/export')) {
-        await route.continue();
-        return;
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(preview),
-      });
-    });
-
-    await page.goto('/e2e/outside-scholarships');
-
-    await expect(page.getByRole('heading', { name: /Upload Outside Scholarship Checks/i })).toBeVisible();
-
-    const pdfBytes = Buffer.from(
-      '%PDF-1.1\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n',
-      'utf8'
-    );
-    await page.setInputFiles('input[type="file"]', {
-      name: 'sample-checks.pdf',
-      mimeType: 'application/pdf',
-      buffer: pdfBytes,
-    });
-
-    await page.getByRole('button', { name: 'Upload Check PDF' }).click();
-
-    await expect(page.getByRole('dialog', { name: 'Review outside scholarship checks' })).toBeVisible({
-      timeout: 15_000,
-    });
     await expect(page.getByText('1 checks need review').first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
 
@@ -106,5 +114,54 @@ test.describe('Outside scholarships review flow', () => {
     const artifactsDir = path.join(__dirname, 'artifacts');
     fs.mkdirSync(artifactsDir, { recursive: true });
     await page.screenshot({ path: path.join(artifactsDir, 'outside-scholarships-after-export.png'), fullPage: true });
+  });
+
+  // Ways this could fail: keystrokes in the blank PID box are dropped; focus leaves the box
+  // after the first keystroke; removing the last PID leaves a box that ignores typing again;
+  // a second blank row appears; the PID is typed but never looked up, so Export stays disabled.
+  test('check with no PIDs → type PID → AD name → export', async ({ page }) => {
+    const noPidPreview = {
+      ...preview,
+      checks: [{ ...preview.checks[0], provider: 'Example Foundation', pids: [] }],
+    };
+    await stubReviewApis(page, noPidPreview);
+    await uploadAndOpenReview(page);
+
+    const pidInputs = page.getByLabel('PID for check 1');
+    await expect(pidInputs).toHaveCount(1);
+    await expect(pidInputs).toHaveValue('');
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
+
+    await pidInputs.click();
+    await pidInputs.pressSequentially(FIXED_PID);
+    await expect(pidInputs).toHaveValue(FIXED_PID);
+    await expect(pidInputs).toBeFocused();
+    await pidInputs.press('Enter');
+    await expect(page.getByText(AD_NAME, { exact: true })).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Remove PID 1 from check 1' }).click();
+    await expect(pidInputs).toHaveCount(1);
+    await expect(pidInputs).toHaveValue('');
+    await expect(page.getByText(AD_NAME, { exact: true })).toBeHidden();
+
+    await pidInputs.click();
+    await pidInputs.pressSequentially(FIXED_PID);
+    await expect(pidInputs).toHaveValue(FIXED_PID);
+    await expect(pidInputs).toBeFocused();
+    await pidInputs.press('Enter');
+    await expect(page.getByText(AD_NAME, { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(pidInputs).toHaveCount(1);
+
+    await expect(page.getByText('0 checks need review').first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
+
+    const artifactsDir = path.join(__dirname, 'artifacts');
+    fs.mkdirSync(artifactsDir, { recursive: true });
+    await page.screenshot({ path: path.join(artifactsDir, 'outside-scholarships-no-pid-typed.png'), fullPage: true });
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export Excel' }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/outside_scholarships/i);
   });
 });
