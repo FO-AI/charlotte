@@ -282,6 +282,10 @@ function nextPidKey() {
   return `pid-${pidKeySeq}`;
 }
 
+function blankPidEntry() {
+  return { pid: '', _key: nextPidKey(), active_directory: { status: 'not_found', name: null } };
+}
+
 function cloneChecks(checks) {
   return (checks || []).map((check) => ({
     ...check,
@@ -291,8 +295,10 @@ function cloneChecks(checks) {
   }));
 }
 
+// A check with no PIDs stores one blank entry, so its input keeps the same key across renders.
 function checksPidsWithKeys(pids) {
-  return (pids || []).map((entry) => {
+  if (!pids?.length) return [blankPidEntry()];
+  return pids.map((entry) => {
     const pid = entry.pid ?? '';
     const digits = String(pid).replace(/\D/g, '');
     const status = entry.active_directory?.status;
@@ -308,17 +314,6 @@ function checksPidsWithKeys(pids) {
         : { status: 'not_found', name: null },
     };
   });
-}
-
-function ensurePidList(check) {
-  if (Array.isArray(check.pids) && check.pids.length) {
-    return check.pids.map((entry) => ({
-      ...entry,
-      _key: entry._key || nextPidKey(),
-      active_directory: entry.active_directory || { status: 'not_found', name: null },
-    }));
-  }
-  return [{ pid: '', _key: nextPidKey(), active_directory: { status: 'not_found', name: null } }];
 }
 
 function StatusBadge({ check }) {
@@ -800,7 +795,6 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                     {visibleChecks.map((check) => {
                       const absoluteIndex = checks.findIndex((item) => item.check_index === check.check_index);
                       const original = extractedRef.current.find((item) => item.check_index === check.check_index) || {};
-                      const pids = ensurePidList(check);
                       const fieldFlag = checkFieldFlag(check);
                       const selected = selectedCheck?.check_index === check.check_index;
                       return (
@@ -820,7 +814,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                           <td className="p-2 w-[5.5rem] max-w-[5.5rem]"><CheckLabel check={check} /></td>
                           <td className="p-2 min-w-[220px]">
                             <div className="space-y-2">
-                              {pids.map((entry, pidIndex) => {
+                              {check.pids.map((entry, pidIndex) => {
                                 const flag = pidEntryFlag(entry);
                                 const extractedPid = (original.pids || [])[pidIndex]?.pid;
                                 const pidKey = entry._key;
@@ -837,7 +831,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                         onChange={(event) => {
                                           const value = event.target.value;
                                           updateCheck(check.check_index, (current) => {
-                                            const next = [...ensurePidList(current)];
+                                            const next = [...current.pids];
                                             const idx = next.findIndex((item) => item._key === pidKey);
                                             if (idx < 0) return current;
                                             // Clear stale AD name as soon as the PID changes.
@@ -869,10 +863,8 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                         aria-label={`Remove PID ${pidIndex + 1} from check ${check.check_index}`}
                                         onClick={() => {
                                           updateCheck(check.check_index, (current) => {
-                                            const next = ensurePidList(current).filter(
-                                              (item) => item._key !== pidKey
-                                            );
-                                            return { ...current, pids: next.length ? next : [] };
+                                            const next = current.pids.filter((item) => item._key !== pidKey);
+                                            return { ...current, pids: next.length ? next : [blankPidEntry()] };
                                           });
                                         }}
                                       >
@@ -913,14 +905,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                 onClick={() => {
                                   updateCheck(check.check_index, (current) => ({
                                     ...current,
-                                    pids: [
-                                      ...ensurePidList(current),
-                                      {
-                                        pid: '',
-                                        _key: nextPidKey(),
-                                        active_directory: { status: 'not_found', name: null },
-                                      },
-                                    ],
+                                    pids: [...current.pids, blankPidEntry()],
                                   }));
                                 }}
                               >
