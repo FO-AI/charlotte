@@ -85,8 +85,9 @@ test.describe('Outside scholarships review flow', () => {
     await stubReviewApis(page, preview);
     await uploadAndOpenReview(page);
 
-    await expect(page.getByText('1 checks need review').first()).toBeVisible();
+    await expect(page.getByText(/1 of 1 left/i).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
+    await expect(page.getByText(/Bad PID/i).first()).toBeVisible();
 
     const pidInput = page.getByLabel('PID for check 1');
     await expect(pidInput).toHaveValue('12345');
@@ -94,14 +95,14 @@ test.describe('Outside scholarships review flow', () => {
     await pidInput.press('Enter');
 
     await expect(page.getByText(AD_NAME, { exact: true })).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/Missing: provider/i)).toBeVisible();
+    await expect(page.getByText(/Missing provider/i).first()).toBeVisible();
 
     // Resolve remaining flag via Mark verified (workflow aid — export does not re-validate).
     const verifyButton = page.getByRole('button', { name: 'Mark verified' });
     await verifyButton.scrollIntoViewIfNeeded();
     await verifyButton.click();
     await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('0 checks need review').first()).toBeVisible();
+    await expect(page.getByText(/0 of 1 left/i).first()).toBeVisible();
 
     await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
 
@@ -132,27 +133,30 @@ test.describe('Outside scholarships review flow', () => {
     await expect(pidInputs).toHaveValue('');
     await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
 
+    const searchButton = page.getByRole('button', {
+      name: 'Search Active Directory for PID on check 1',
+    });
+
     await pidInputs.click();
     await pidInputs.pressSequentially(FIXED_PID);
     await expect(pidInputs).toHaveValue(FIXED_PID);
     await expect(pidInputs).toBeFocused();
-    await pidInputs.press('Enter');
+    await searchButton.click();
     await expect(page.getByText(AD_NAME, { exact: true })).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Remove PID 1 from check 1' }).click();
-    await expect(pidInputs).toHaveCount(1);
+    // Clearing the field resets AD; search again after retyping.
+    await pidInputs.fill('');
     await expect(pidInputs).toHaveValue('');
     await expect(page.getByText(AD_NAME, { exact: true })).toBeHidden();
 
     await pidInputs.click();
     await pidInputs.pressSequentially(FIXED_PID);
     await expect(pidInputs).toHaveValue(FIXED_PID);
-    await expect(pidInputs).toBeFocused();
-    await pidInputs.press('Enter');
+    await searchButton.click();
     await expect(page.getByText(AD_NAME, { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(pidInputs).toHaveCount(1);
 
-    await expect(page.getByText('0 checks need review').first()).toBeVisible();
+    await expect(page.getByText(/0 of 1 left/i).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
 
     const artifactsDir = path.join(__dirname, 'artifacts');
