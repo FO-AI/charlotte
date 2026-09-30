@@ -37,10 +37,16 @@ import {
 } from '@/components/banking/outside-scholarships-flags';
 
 const FOCUS_INPUT =
-  'w-full rounded-md border px-3 py-2 text-sm focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy';
+  'w-full rounded-lg border border-[#B7D7ED] bg-white px-3 py-2.5 text-sm shadow-sm transition-colors placeholder:text-muted-foreground hover:border-[#4B9CD3]/80 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy';
 
 const ERROR_INPUT =
-  'border-red-500 bg-red-50/40 focus-visible:outline-red-700';
+  'border-red-400 bg-red-50 hover:border-red-500 focus-visible:outline-red-700';
+
+const READONLY_SURFACE =
+  'w-full rounded-lg border border-[#B7D7ED]/80 bg-[#EDF5FB] px-3 py-2.5 text-sm min-h-[2.625rem] flex items-center text-navy';
+
+const SECTION_CARD =
+  'rounded-xl border border-[#B7D7ED] bg-white p-3.5 shadow-sm';
 
 const LIGHTBOX_MIN_ZOOM = 1;
 const LIGHTBOX_MAX_ZOOM = 4;
@@ -241,26 +247,28 @@ function CheckImageLightbox({ src, alt, onClose }) {
 function CheckThumb({ src, alt, label, emptyLabel, onOpen }) {
   if (!src) {
     return (
-      <div className="rounded border bg-muted/10 p-3">
-        <p className="mb-1 text-base font-bold text-navy">{label}</p>
-        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+      <div className={`${SECTION_CARD} bg-[#EDF5FB]/60`}>
+        <p className="mb-2 text-base font-bold text-navy">{label}</p>
+        <div className="flex min-h-[8rem] items-center justify-center rounded-lg border border-dashed border-[#B7D7ED] bg-white/70 px-3 py-6">
+          <p className="text-sm text-muted-foreground text-center">{emptyLabel}</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div>
+    <div className={SECTION_CARD}>
       <p className="mb-2 text-base font-bold text-navy">{label}</p>
       <button
         type="button"
-        className="group relative block w-full overflow-hidden rounded border bg-muted/20 text-left focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy"
+        className="group relative block w-full overflow-hidden rounded-lg border border-[#B7D7ED] bg-[#EDF5FB]/40 text-left transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy"
         onClick={() => onOpen({ src, alt })}
         aria-label={`Enlarge ${alt}`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt={alt} className="w-full h-auto max-h-48 object-contain bg-white" />
-        <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/55 px-2 py-1.5 text-xs text-white opacity-90 group-hover:opacity-100">
-          Click to enlarge · double-click zooms
+        <img src={src} alt={alt} className="w-full h-auto max-h-40 object-contain bg-white" />
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-navy/80 to-transparent px-3 py-2.5 text-xs font-medium text-white">
+          Click to enlarge
         </span>
       </button>
     </div>
@@ -315,7 +323,10 @@ function StatusListIcon({ check }) {
   const status = checkStatus(check);
   if (status.key === 'needs_review') {
     return (
-      <span className="inline-flex shrink-0 text-red-600" title="Needs review">
+      <span
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-700"
+        title="Needs review"
+      >
         <AlertCircle className="h-4 w-4" aria-hidden="true" />
         <span className="sr-only">Needs review</span>
       </span>
@@ -323,14 +334,20 @@ function StatusListIcon({ check }) {
   }
   if (status.key === 'verified') {
     return (
-      <span className="inline-flex shrink-0 text-emerald-600" title="Verified">
+      <span
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"
+        title="Verified"
+      >
         <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
         <span className="sr-only">Verified</span>
       </span>
     );
   }
   return (
-    <span className="inline-flex shrink-0 text-emerald-600/80" title="OK">
+    <span
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"
+      title="OK"
+    >
       <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
       <span className="sr-only">OK</span>
     </span>
@@ -338,7 +355,7 @@ function StatusListIcon({ check }) {
 }
 
 function FlagChip({ flag, onRetry }) {
-  if (!flag) return null;
+  if (!flag || flag.type === 'ad_looking_up') return null;
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Tooltip>
@@ -365,7 +382,9 @@ function EditedMarker({ show, original }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="ml-1 text-[10px] uppercase tracking-wide text-[#2C5080]">Edited</span>
+        <span className="ml-1 shrink-0 rounded-md bg-[#EDF5FB] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#2C5080] ring-1 ring-[#B7D7ED]">
+          Edited
+        </span>
       </TooltipTrigger>
       <TooltipContent>Extracted: {original || '(blank)'}</TooltipContent>
     </Tooltip>
@@ -374,7 +393,7 @@ function EditedMarker({ show, original }) {
 
 function FieldLabel({ children, invalid }) {
   return (
-    <span className="mb-1.5 flex items-center gap-1.5 text-base font-bold text-navy">
+    <span className="mb-1.5 flex items-center gap-1.5 text-[0.95rem] font-bold tracking-tight text-navy">
       {children}
       {invalid ? <AlertCircle className="h-4 w-4 text-red-600" aria-hidden="true" /> : null}
     </span>
@@ -412,6 +431,8 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const [dirty, setDirty] = useState(false);
   const lookupSeqRef = useRef({});
   const rowRefs = useRef({});
+  // Tracks needs-review for the *same* check only — used so selecting another check
+  // does not look like the previous one was resolved (false auto-advance).
   const prevNeedsReviewRef = useRef(null);
 
   const summary = useMemo(() => summarizeReview(checks), [checks]);
@@ -438,27 +459,30 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     extractedRef.current.find((item) => item.check_index === selectedCheckId) || {};
 
   useEffect(() => {
+    if (!dirty) return undefined;
     const onBeforeUnload = (event) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, []);
+  }, [dirty]);
 
   useEffect(() => {
     const previous = document.activeElement;
+    const returnNode = returnFocusRef?.current;
     return () => {
-      if (returnFocusRef?.current?.focus) {
-        returnFocusRef.current.focus();
-      } else if (previous && previous.focus) {
+      if (returnNode?.focus) {
+        returnNode.focus();
+      } else if (previous && typeof previous.focus === 'function') {
         previous.focus();
       }
     };
   }, [returnFocusRef]);
 
   const handleClose = useCallback(() => {
-    if (dirty || exporting) {
+    if (exporting) return;
+    if (dirty) {
       const confirmed = window.confirm(
         'Discard this review? The extracted data will be lost and the PDF must be uploaded again.'
       );
@@ -524,14 +548,16 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     }
   }, [selectCheckByAbsoluteIndex, selectedIndex]);
 
-  // Auto-advance when the selected check stops needing review.
+  // Auto-advance when the *currently selected* check stops needing review.
   useEffect(() => {
     if (!selectedCheck) {
       prevNeedsReviewRef.current = null;
       return;
     }
     const needs = checkNeedsReview(selectedCheck);
-    if (prevNeedsReviewRef.current === true && needs === false) {
+    const prev = prevNeedsReviewRef.current;
+    const sameCheck = prev && prev.checkIndex === selectedCheck.check_index;
+    if (sameCheck && prev.needs === true && needs === false) {
       const start = selectedIndex;
       let advanced = false;
       for (let offset = 1; offset <= checks.length; offset += 1) {
@@ -546,7 +572,10 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
         setLiveMessage('All checks reviewed. You can export Excel.');
       }
     }
-    prevNeedsReviewRef.current = needs;
+    prevNeedsReviewRef.current = {
+      checkIndex: selectedCheck.check_index,
+      needs,
+    };
   }, [checks, selectedCheck, selectedIndex, selectCheckByAbsoluteIndex]);
 
   const lookupPid = useCallback(
@@ -717,11 +746,24 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
 
   const handleExport = async () => {
     if (summary.needsReview > 0) return;
+    const sanitizedAidYear = String(aidYear || '').trim();
+    if (!/^\d{4}$/.test(sanitizedAidYear)) {
+      setErrorMessage('Aid year must be a 4-digit year.');
+      return;
+    }
+    if (!['F', 'S'].includes(aidTerm)) {
+      setErrorMessage('Aid term must be F or S.');
+      return;
+    }
     setExporting(true);
     setErrorMessage('');
     setSuccessMessage('');
     try {
-      const { blob, filename } = await apiClient.exportOutsideScholarshipsExcel(buildExportPayload());
+      const { blob, filename } = await apiClient.exportOutsideScholarshipsExcel({
+        ...buildExportPayload(),
+        aid_year: sanitizedAidYear,
+        aid_term: aidTerm,
+      });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -760,22 +802,27 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   return (
     <TooltipProvider>
       <div
-        className="fixed inset-0 z-50 flex flex-col bg-background"
+        className="fixed inset-0 z-50 flex flex-col bg-[#F7FBFE]"
         role="dialog"
         aria-modal="true"
         aria-label="Review outside scholarship checks"
       >
-        <div className="border-b px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="border-b border-[#B7D7ED] bg-white px-4 py-3.5 shadow-sm flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <p className="text-sm text-muted-foreground truncate">{preview?.filename || 'checks.pdf'}</p>
-            <div className="mt-2 flex flex-wrap items-end gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#4B9CD3]">
+              Outside scholarships
+            </p>
+            <p className="mt-0.5 text-sm text-muted-foreground truncate">
+              {preview?.filename || 'checks.pdf'}
+            </p>
+            <div className="mt-2.5 flex flex-wrap items-end gap-3">
               <label className="text-sm">
-                <span className="block mb-1 font-medium">Aid year</span>
+                <span className="block mb-1.5 text-[0.95rem] font-bold text-navy">Aid year</span>
                 <Input
                   value={aidYear}
                   maxLength={4}
                   inputMode="numeric"
-                  className={FOCUS_INPUT}
+                  className={`${FOCUS_INPUT} w-28`}
                   onChange={(event) => {
                     setAidYear(event.target.value);
                     markDirty();
@@ -783,10 +830,10 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                 />
               </label>
               <label className="text-sm">
-                <span className="block mb-1 font-medium">Aid term</span>
+                <span className="block mb-1.5 text-[0.95rem] font-bold text-navy">Aid term</span>
                 <select
                   value={aidTerm}
-                  className={FOCUS_INPUT + ' bg-background'}
+                  className={`${FOCUS_INPUT} w-24`}
                   onChange={(event) => {
                     setAidTerm(event.target.value);
                     markDirty();
@@ -796,34 +843,33 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                   <option value="S">S</option>
                 </select>
               </label>
-              <p className="text-sm pb-2 flex items-center gap-1.5">
+              <div
+                className={`mb-0.5 flex items-center gap-2 rounded-full px-3 py-1.5 text-sm ${
+                  summary.needsReview > 0
+                    ? 'bg-red-50 text-red-950 ring-1 ring-red-200'
+                    : 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200'
+                }`}
+              >
                 {summary.needsReview > 0 ? (
-                  <>
-                    <AlertCircle className="h-4 w-4 text-red-600 shrink-0" aria-hidden="true" />
-                    <span className="font-medium text-red-950">
-                      {summary.needsReview} of {summary.checkCount} left
-                    </span>
-                  </>
+                  <AlertCircle className="h-4 w-4 text-red-600 shrink-0" aria-hidden="true" />
                 ) : (
-                  <>
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-hidden="true" />
-                    <span className="font-medium text-foreground">
-                      0 of {summary.checkCount} left
-                    </span>
-                  </>
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-hidden="true" />
                 )}
-                <span className="text-muted-foreground">
+                <span className="font-semibold">
+                  {summary.needsReview} of {summary.checkCount} left
+                </span>
+                <span className="text-muted-foreground font-normal">
                   · {summary.pidCount} PIDs · $
                   {summary.totalAmount.toLocaleString(undefined, {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}
                 </span>
-              </p>
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex rounded-md border overflow-hidden">
+            <div className="flex rounded-lg border border-[#B7D7ED] bg-[#EDF5FB]/50 p-0.5 overflow-hidden">
               <Button
                 type="button"
                 variant={filter === 'all' ? 'default' : 'ghost'}
@@ -885,8 +931,11 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
         <div className="flex-1 min-h-0">
           <ResizablePanelGroup direction="horizontal" className="h-full">
             <ResizablePanel defaultSize={28} minSize={20} className="min-w-[12rem]">
-              <div className="h-full overflow-auto border-r">
-                <ul className="divide-y" role="listbox" aria-label="Checks">
+              <div className="h-full overflow-auto border-r border-[#B7D7ED] bg-white">
+                <div className="sticky top-0 z-10 border-b border-[#B7D7ED] bg-[#EDF5FB] px-3 py-2.5">
+                  <p className="text-xs font-bold uppercase tracking-wide text-navy">Checks</p>
+                </div>
+                <ul className="p-2 space-y-1" role="listbox" aria-label="Checks">
                   {visibleChecks.map((check) => {
                     const absoluteIndex = checks.findIndex(
                       (item) => item.check_index === check.check_index
@@ -902,20 +951,20 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                           ref={(node) => {
                             rowRefs.current[check.check_index] = node;
                           }}
-                          className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-[-3px] focus-visible:outline-navy ${
+                          className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-[-3px] focus-visible:outline-navy ${
                             selected
-                              ? 'bg-[rgba(75,156,211,0.14)] border-l-4 border-l-navy'
-                              : 'border-l-4 border-l-transparent hover:bg-muted/40'
+                              ? 'bg-[rgba(75,156,211,0.18)] ring-1 ring-[#4B9CD3]/50 shadow-sm'
+                              : 'hover:bg-[#EDF5FB]'
                           }`}
                           onClick={() => selectCheckByAbsoluteIndex(absoluteIndex)}
                         >
                           <StatusListIcon check={check} />
                           <span className="min-w-0 flex-1">
                             <span className="flex items-baseline gap-1.5">
-                              <span className="font-medium">Check {check.check_index}</span>
+                              <span className="font-semibold text-navy">Check {check.check_index}</span>
                               <span className="text-xs text-muted-foreground">{pageHint(check)}</span>
                             </span>
-                            <span className="block truncate text-xs text-muted-foreground">
+                            <span className="block truncate text-xs text-muted-foreground mt-0.5">
                               ${String(check.amount || '0')} · {check.name || 'No payee'}
                             </span>
                           </span>
@@ -925,7 +974,9 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                     );
                   })}
                   {!visibleChecks.length ? (
-                    <li className="px-3 py-6 text-sm text-muted-foreground">No checks in this filter.</li>
+                    <li className="px-3 py-8 text-sm text-muted-foreground text-center">
+                      No checks in this filter.
+                    </li>
                   ) : null}
                 </ul>
               </div>
@@ -934,22 +985,45 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             <ResizableHandle withHandle />
 
             <ResizablePanel defaultSize={72} minSize={40}>
-              <div className="h-full overflow-auto p-4 space-y-4">
+              <div className="h-full overflow-auto p-4 sm:p-5 space-y-4">
                 {!selectedCheck ? (
-                  <p className="text-sm text-muted-foreground">Select a check to review.</p>
+                  <div className={`${SECTION_CARD} flex min-h-[12rem] items-center justify-center`}>
+                    <p className="text-sm text-muted-foreground">Select a check to review.</p>
+                  </div>
                 ) : (
                   <>
                     {issueLabels.length > 0 ? (
                       <div
-                        className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-950"
+                        className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-gradient-to-r from-red-50 to-white px-4 py-3 text-sm text-red-950 shadow-sm"
                         role="status"
                       >
-                        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-red-600" aria-hidden="true" />
-                        <p className="font-medium">{issueLabels.join(' · ')}</p>
+                        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100">
+                          <AlertCircle className="h-4 w-4 text-red-600" aria-hidden="true" />
+                        </span>
+                        <div className="min-w-0 pt-0.5">
+                          <p className="text-xs font-bold uppercase tracking-wide text-red-700">
+                            Needs review
+                          </p>
+                          <p className="font-semibold mt-0.5">{issueLabels.join(' · ')}</p>
+                        </div>
                       </div>
-                    ) : null}
+                    ) : (
+                      <div
+                        className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white px-4 py-3 text-sm text-emerald-950 shadow-sm"
+                        role="status"
+                      >
+                        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+                        </span>
+                        <p className="font-semibold">
+                          {summary.needsReview > 0
+                            ? 'No issues on this check'
+                            : 'Looks good — ready to export'}
+                        </p>
+                      </div>
+                    )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <CheckThumb
                         label="Front"
                         src={selectedCheck.front_image}
@@ -966,7 +1040,14 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                       />
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                    <div className={`${SECTION_CARD} grid grid-cols-1 sm:grid-cols-2 gap-3 content-start`}>
+                      <div className="sm:col-span-2 -mt-0.5 mb-0.5">
+                        <h3 className="text-base font-bold text-navy">Check details</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Edit extracted fields as needed
+                        </p>
+                      </div>
                       <label className="sm:col-span-2">
                         <FieldLabel>Payee name</FieldLabel>
                         <div className="flex items-center gap-1">
@@ -1092,9 +1173,14 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                       </label>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className={`${SECTION_CARD} space-y-3 h-full`}>
                       <div className="flex items-center justify-between gap-2">
-                        <h3 className="text-base font-bold text-navy">PIDs</h3>
+                        <div>
+                          <h3 className="text-base font-bold text-navy">PIDs</h3>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Look up each PID in Active Directory
+                          </p>
+                        </div>
                         {checkNeedsReview(selectedCheck) || selectedCheck.verified ? (
                           <Button type="button" variant="outline" size="sm" onClick={toggleVerified}>
                             {selectedCheck.verified ? 'Undo' : 'Mark verified'}
@@ -1105,84 +1191,91 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                       <div className="space-y-3">
                         {selectedCheck.pids.map((entry, pidIndex) => {
                           const flag = pidEntryFlag(entry);
-                          const pidInvalid = Boolean(flag);
+                          const pidInvalid = Boolean(flag) && flag.type !== 'ad_looking_up';
                           const extractedPid = (originalSelected.pids || [])[pidIndex]?.pid;
                           const pidKey = entry._key;
+                          const adFound = entry.active_directory?.status === 'found';
                           return (
                             <div
                               key={pidKey}
-                              className={`rounded-md border p-3 space-y-2 ${
-                                pidInvalid ? 'border-red-300 bg-red-50/20' : ''
+                              className={`rounded-xl border p-3.5 space-y-2.5 shadow-sm ${
+                                pidInvalid
+                                  ? 'border-red-300 bg-red-50/40'
+                                  : 'border-[#B7D7ED] bg-[#EDF5FB]/35'
                               }`}
                             >
-                              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                                <div className="w-full sm:w-[11rem] shrink-0">
-                                  <FieldLabel invalid={pidInvalid}>PID</FieldLabel>
-                                  <div className="flex items-center gap-1">
-                                    <label className="sr-only" htmlFor={`pid-${pidKey}`}>
-                                      PID for check {selectedCheck.check_index}
-                                    </label>
-                                    <input
-                                      id={`pid-${pidKey}`}
-                                      className={`${FOCUS_INPUT} ${pidInvalid ? ERROR_INPUT : ''}`}
-                                      aria-invalid={pidInvalid || undefined}
-                                      inputMode="numeric"
-                                      maxLength={11}
-                                      value={entry.pid ?? ''}
-                                      onChange={(event) => {
-                                        const value = event.target.value;
-                                        updateCheck(selectedCheck.check_index, (current) => {
-                                          const next = [...current.pids];
-                                          const idx = next.findIndex((item) => item._key === pidKey);
-                                          if (idx < 0) return current;
-                                          next[idx] = {
-                                            ...next[idx],
-                                            pid: value,
-                                            active_directory: { status: 'not_found', name: null },
-                                            lookingUp: false,
-                                            _lookedUpFor: undefined,
-                                          };
-                                          return { ...current, pids: next };
-                                        });
-                                      }}
-                                      onBlur={(event) =>
-                                        lookupPid(selectedCheck.check_index, pidKey, event.target.value)
-                                      }
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                          event.preventDefault();
-                                          lookupPid(
-                                            selectedCheck.check_index,
-                                            pidKey,
-                                            event.currentTarget.value
-                                          );
+                              <div className="flex items-start gap-2">
+                                <div className="min-w-0 flex-1 space-y-2.5">
+                                  <div>
+                                    <FieldLabel invalid={pidInvalid}>PID</FieldLabel>
+                                    <div className="flex items-center gap-1">
+                                      <label className="sr-only" htmlFor={`pid-${pidKey}`}>
+                                        PID for check {selectedCheck.check_index}
+                                      </label>
+                                      <input
+                                        id={`pid-${pidKey}`}
+                                        className={`${FOCUS_INPUT} ${pidInvalid ? ERROR_INPUT : ''}`}
+                                        aria-invalid={pidInvalid || undefined}
+                                        inputMode="numeric"
+                                        maxLength={11}
+                                        value={entry.pid ?? ''}
+                                        onChange={(event) => {
+                                          const value = event.target.value;
+                                          updateCheck(selectedCheck.check_index, (current) => {
+                                            const next = [...current.pids];
+                                            const idx = next.findIndex((item) => item._key === pidKey);
+                                            if (idx < 0) return current;
+                                            next[idx] = {
+                                              ...next[idx],
+                                              pid: value,
+                                              active_directory: { status: 'not_found', name: null },
+                                              lookingUp: false,
+                                              _lookedUpFor: undefined,
+                                            };
+                                            return { ...current, pids: next };
+                                          });
+                                        }}
+                                        onBlur={(event) =>
+                                          lookupPid(selectedCheck.check_index, pidKey, event.target.value)
                                         }
-                                      }}
-                                    />
-                                    <EditedMarker
-                                      show={String(entry.pid ?? '') !== String(extractedPid ?? '')}
-                                      original={extractedPid}
-                                    />
+                                        onKeyDown={(event) => {
+                                          if (event.key === 'Enter') {
+                                            event.preventDefault();
+                                            lookupPid(
+                                              selectedCheck.check_index,
+                                              pidKey,
+                                              event.currentTarget.value
+                                            );
+                                          }
+                                        }}
+                                      />
+                                      <EditedMarker
+                                        show={String(entry.pid ?? '') !== String(extractedPid ?? '')}
+                                        original={extractedPid}
+                                      />
+                                    </div>
                                   </div>
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <FieldLabel>Active Directory name</FieldLabel>
-                                  <div
-                                    className={`${FOCUS_INPUT} bg-muted/30 text-sm min-h-[2.5rem] flex items-center`}
-                                    aria-live="polite"
-                                  >
-                                    {entry.lookingUp
-                                      ? 'Looking up…'
-                                      : entry.active_directory?.status === 'found'
-                                        ? entry.active_directory.name
-                                        : '—'}
+                                  <div>
+                                    <FieldLabel>Active Directory name</FieldLabel>
+                                    <div
+                                      className={`${READONLY_SURFACE} ${
+                                        adFound ? 'font-medium' : 'text-muted-foreground'
+                                      }`}
+                                      aria-live="polite"
+                                    >
+                                      {entry.lookingUp
+                                        ? 'Looking up…'
+                                        : adFound
+                                          ? entry.active_directory.name
+                                          : '—'}
+                                    </div>
                                   </div>
                                 </div>
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   size="icon"
-                                  className="shrink-0 self-end"
+                                  className="shrink-0 mt-7 rounded-lg border border-transparent hover:border-[#B7D7ED] hover:bg-white"
                                   aria-label={`Remove PID ${pidIndex + 1} from check ${selectedCheck.check_index}`}
                                   onClick={() => {
                                     updateCheck(selectedCheck.check_index, (current) => {
@@ -1214,6 +1307,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                         type="button"
                         variant="outline"
                         size="sm"
+                        className="border-[#B7D7ED] bg-white hover:bg-[#EDF5FB]"
                         onClick={() => {
                           updateCheck(selectedCheck.check_index, (current) => ({
                             ...current,
@@ -1224,6 +1318,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                         <Plus className="h-4 w-4" />
                         Add PID
                       </Button>
+                    </div>
                     </div>
                   </>
                 )}

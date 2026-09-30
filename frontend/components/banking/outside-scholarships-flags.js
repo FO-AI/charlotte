@@ -34,6 +34,15 @@ export function pidEntryFlag(entry) {
       message: 'PIDs are 9 digits. Check the image for a cut-off or misread digit.',
     };
   }
+  // Keep the check in Needs review while AD is in flight so export cannot race ahead,
+  // and avoid flashing "No AD match" from a stale status during lookup.
+  if (entry?.lookingUp) {
+    return {
+      type: 'ad_looking_up',
+      shortLabel: 'Looking up…',
+      message: 'Looking up this PID in Active Directory.',
+    };
+  }
   const status = entry?.active_directory?.status;
   if (status === 'lookup_failed') {
     return {

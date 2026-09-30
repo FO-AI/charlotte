@@ -32,29 +32,29 @@ function formatFileSize(bytes) {
 function ExtractingPanel({ statusMessage, fileName }) {
   return (
     <div
-      className="flex items-center gap-6 rounded-lg border border-fordham bg-cloud/40 px-5 py-6"
+      className="rounded-lg border border-fordham bg-cloud/40 px-5 py-6 space-y-3"
       role="status"
     >
-      <div className="min-w-0 flex-1 space-y-3">
-        <div>
-          <p className="text-sm font-medium text-navy">Extracting checks…</p>
-          {fileName ? (
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">{fileName}</p>
-          ) : null}
-        </div>
+      <div>
+        <p className="text-sm font-medium text-navy">Extracting checks…</p>
+        {fileName ? (
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">{fileName}</p>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-3">
         <div
-          className="relative h-2.5 w-full overflow-hidden rounded-full bg-[rgba(19,41,75,0.12)]"
+          className="relative h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[rgba(19,41,75,0.12)]"
           aria-hidden="true"
         >
           <div className="extract-progress-bar" />
         </div>
-        <p className="min-h-[1.25rem] text-sm text-muted-foreground" aria-live="polite">
-          {statusMessage || 'Starting…'}
-        </p>
+        <div className="shrink-0 flex items-center justify-center" aria-hidden="true">
+          <ThinkingOrb state="searching" size={20} theme="light" aria-label="Extracting checks" />
+        </div>
       </div>
-      <div className="shrink-0" aria-hidden="true">
-        <ThinkingOrb state="searching" size={64} theme="light" aria-label="Extracting checks" />
-      </div>
+      <p className="min-h-[1.25rem] text-sm text-muted-foreground" aria-live="polite">
+        {statusMessage || 'Starting…'}
+      </p>
     </div>
   );
 }
