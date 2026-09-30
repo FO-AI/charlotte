@@ -133,23 +133,26 @@ test.describe('Outside scholarships review flow', () => {
     await expect(pidInputs).toHaveValue('');
     await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
 
+    const searchButton = page.getByRole('button', {
+      name: 'Search Active Directory for PID on check 1',
+    });
+
     await pidInputs.click();
     await pidInputs.pressSequentially(FIXED_PID);
     await expect(pidInputs).toHaveValue(FIXED_PID);
     await expect(pidInputs).toBeFocused();
-    await pidInputs.press('Enter');
+    await searchButton.click();
     await expect(page.getByText(AD_NAME, { exact: true })).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Remove PID 1 from check 1' }).click();
-    await expect(pidInputs).toHaveCount(1);
+    // Clearing the field resets AD; search again after retyping.
+    await pidInputs.fill('');
     await expect(pidInputs).toHaveValue('');
     await expect(page.getByText(AD_NAME, { exact: true })).toBeHidden();
 
     await pidInputs.click();
     await pidInputs.pressSequentially(FIXED_PID);
     await expect(pidInputs).toHaveValue(FIXED_PID);
-    await expect(pidInputs).toBeFocused();
-    await pidInputs.press('Enter');
+    await searchButton.click();
     await expect(page.getByText(AD_NAME, { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(pidInputs).toHaveCount(1);
 

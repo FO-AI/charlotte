@@ -6,9 +6,9 @@ import {
   CheckCircle2,
   ChevronDown,
   Loader2,
-  Minus,
   Plus,
   RotateCcw,
+  Search,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -1204,100 +1204,116 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                   : 'border-[#B7D7ED] bg-[#EDF5FB]/35'
                               }`}
                             >
-                              <div className="flex items-start gap-2">
-                                <div className="min-w-0 flex-1 space-y-2.5">
-                                  <div>
-                                    <FieldLabel invalid={pidInvalid}>PID</FieldLabel>
-                                    <div className="flex items-center gap-1">
-                                      <label className="sr-only" htmlFor={`pid-${pidKey}`}>
-                                        PID for check {selectedCheck.check_index}
-                                      </label>
-                                      <input
-                                        id={`pid-${pidKey}`}
-                                        className={`${FOCUS_INPUT} ${pidInvalid ? ERROR_INPUT : ''}`}
-                                        aria-invalid={pidInvalid || undefined}
-                                        inputMode="numeric"
-                                        maxLength={11}
-                                        value={entry.pid ?? ''}
-                                        onChange={(event) => {
-                                          const value = event.target.value;
-                                          updateCheck(selectedCheck.check_index, (current) => {
-                                            const next = [...current.pids];
-                                            const idx = next.findIndex((item) => item._key === pidKey);
-                                            if (idx < 0) return current;
-                                            next[idx] = {
-                                              ...next[idx],
-                                              pid: value,
-                                              active_directory: { status: 'not_found', name: null },
-                                              lookingUp: false,
-                                              _lookedUpFor: undefined,
-                                            };
-                                            return { ...current, pids: next };
-                                          });
-                                        }}
-                                        onBlur={(event) =>
-                                          lookupPid(selectedCheck.check_index, pidKey, event.target.value)
+                              <div className="space-y-2.5">
+                                <div>
+                                  <FieldLabel invalid={pidInvalid}>PID</FieldLabel>
+                                  <div className="flex items-center gap-1.5">
+                                    <label className="sr-only" htmlFor={`pid-${pidKey}`}>
+                                      PID for check {selectedCheck.check_index}
+                                    </label>
+                                    <input
+                                      id={`pid-${pidKey}`}
+                                      className={`${FOCUS_INPUT} ${pidInvalid ? ERROR_INPUT : ''}`}
+                                      aria-invalid={pidInvalid || undefined}
+                                      inputMode="numeric"
+                                      maxLength={11}
+                                      value={entry.pid ?? ''}
+                                      onChange={(event) => {
+                                        const value = event.target.value;
+                                        updateCheck(selectedCheck.check_index, (current) => {
+                                          const next = [...current.pids];
+                                          const idx = next.findIndex((item) => item._key === pidKey);
+                                          if (idx < 0) return current;
+                                          next[idx] = {
+                                            ...next[idx],
+                                            pid: value,
+                                            active_directory: { status: 'not_found', name: null },
+                                            lookingUp: false,
+                                            _lookedUpFor: undefined,
+                                          };
+                                          return { ...current, pids: next };
+                                        });
+                                      }}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') {
+                                          event.preventDefault();
+                                          lookupPid(
+                                            selectedCheck.check_index,
+                                            pidKey,
+                                            event.currentTarget.value
+                                          );
                                         }
-                                        onKeyDown={(event) => {
-                                          if (event.key === 'Enter') {
-                                            event.preventDefault();
-                                            lookupPid(
-                                              selectedCheck.check_index,
-                                              pidKey,
-                                              event.currentTarget.value
-                                            );
-                                          }
-                                        }}
-                                      />
-                                      <EditedMarker
-                                        show={String(entry.pid ?? '') !== String(extractedPid ?? '')}
-                                        original={extractedPid}
-                                      />
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <FieldLabel>Active Directory name</FieldLabel>
-                                    <div
-                                      className={`${READONLY_SURFACE} ${
-                                        adFound ? 'font-medium' : 'text-muted-foreground'
-                                      }`}
-                                      aria-live="polite"
+                                      }}
+                                    />
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="icon"
+                                      className="shrink-0 h-[2.625rem] w-[2.625rem] border-[#B7D7ED] bg-white hover:bg-[#EDF5FB]"
+                                      disabled={entry.lookingUp}
+                                      aria-label={`Search Active Directory for PID on check ${selectedCheck.check_index}`}
+                                      onClick={() =>
+                                        lookupPid(selectedCheck.check_index, pidKey, entry.pid)
+                                      }
                                     >
-                                      {entry.lookingUp
-                                        ? 'Looking up…'
-                                        : adFound
-                                          ? entry.active_directory.name
-                                          : '—'}
-                                    </div>
+                                      {entry.lookingUp ? (
+                                        <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                                      ) : (
+                                        <Search className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                    <EditedMarker
+                                      show={String(entry.pid ?? '') !== String(extractedPid ?? '')}
+                                      original={extractedPid}
+                                    />
                                   </div>
                                 </div>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="shrink-0 mt-7 rounded-lg border border-transparent hover:border-[#B7D7ED] hover:bg-white"
-                                  aria-label={`Remove PID ${pidIndex + 1} from check ${selectedCheck.check_index}`}
-                                  onClick={() => {
-                                    updateCheck(selectedCheck.check_index, (current) => {
-                                      const next = current.pids.filter((item) => item._key !== pidKey);
-                                      return {
-                                        ...current,
-                                        pids: next.length ? next : [blankPidEntry()],
-                                      };
-                                    });
-                                  }}
-                                >
-                                  <Minus className="h-4 w-4" />
-                                </Button>
+                                <div>
+                                  <FieldLabel>Active Directory name</FieldLabel>
+                                  <div
+                                    className={`${READONLY_SURFACE} ${
+                                      adFound ? 'font-medium' : 'text-muted-foreground'
+                                    }`}
+                                    aria-live="polite"
+                                  >
+                                    {entry.lookingUp
+                                      ? 'Looking up…'
+                                      : adFound
+                                        ? entry.active_directory.name
+                                        : '—'}
+                                  </div>
+                                </div>
                               </div>
-                              <FlagChip
-                                flag={flag}
-                                onRetry={
-                                  flag?.type === 'ad_lookup_failed'
-                                    ? () => lookupPid(selectedCheck.check_index, pidKey, entry.pid)
-                                    : undefined
-                                }
-                              />
+                              <div className="flex flex-wrap items-center gap-2">
+                                <FlagChip
+                                  flag={flag}
+                                  onRetry={
+                                    flag?.type === 'ad_lookup_failed'
+                                      ? () => lookupPid(selectedCheck.check_index, pidKey, entry.pid)
+                                      : undefined
+                                  }
+                                />
+                                {selectedCheck.pids.length > 1 ? (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-muted-foreground h-auto px-1.5 py-0.5"
+                                    aria-label={`Remove PID ${pidIndex + 1} from check ${selectedCheck.check_index}`}
+                                    onClick={() => {
+                                      updateCheck(selectedCheck.check_index, (current) => {
+                                        const next = current.pids.filter((item) => item._key !== pidKey);
+                                        return {
+                                          ...current,
+                                          pids: next.length ? next : [blankPidEntry()],
+                                        };
+                                      });
+                                    }}
+                                  >
+                                    Remove
+                                  </Button>
+                                ) : null}
+                              </div>
                             </div>
                           );
                         })}
