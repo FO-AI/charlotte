@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 # instance. Raise it only if the Azure OpenAI deployment's quota allows more vision calls at once.
 MAX_CONCURRENT_CHECKS = 16
 # Keep in sync with frontend outside-scholarships-upload-modal MAX_FILE_SIZE.
-MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+MAX_UPLOAD_BYTES = 300 * 1024 * 1024
 
 
 class OutsideScholarshipService:

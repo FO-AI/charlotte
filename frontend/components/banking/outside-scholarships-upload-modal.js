@@ -11,7 +11,7 @@ import { useAuth } from '@/lib/auth/auth-context-msal';
 import OutsideScholarshipsReview from '@/components/banking/outside-scholarships-review';
 
 // Scanned check batches often exceed 50MB; keep in sync with backend MAX_UPLOAD_BYTES.
-const MAX_FILE_SIZE = 200 * 1024 * 1024;
+const MAX_FILE_SIZE = 300 * 1024 * 1024;
 
 const EXTRACTING_STATUS_MESSAGES = [
   'Reading the PDF',
@@ -132,7 +132,7 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
-      setErrorMessage('File size too large (max 200MB).');
+      setErrorMessage('File size too large (max 300MB).');
       return;
     }
 
