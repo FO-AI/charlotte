@@ -5,6 +5,12 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from openpyxl import Workbook
 from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
+
+# Banking asked for Provider text length between 1 and 30 characters.
+PROVIDER_MIN_LENGTH = 1
+PROVIDER_MAX_LENGTH = 30
 
 
 def _active_directory_display_name(result: Optional[Mapping[str, Any]]) -> str:
@@ -22,6 +28,7 @@ class OutsideScholarshipsDataLoader:
     HEADERS = [
         "PID",
         "Amount",
+        "Check #",
         "Name",
         "Active Directory Name",
         "Aid year",
@@ -157,6 +164,7 @@ class OutsideScholarshipsDataLoader:
 
             amount_decimal = self._to_decimal_amount(reviewed.get("amount"))
             amount_value = float(amount_decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+            check_number = self._excel_safe_text(reviewed.get("check_number") or "")
             name = self._excel_safe_text(reviewed.get("name") or "")
             provider = self._excel_safe_text(reviewed.get("provider") or "")
             scholarship_name = self._excel_safe_text(reviewed.get("scholarship_name") or "")
@@ -206,6 +214,7 @@ class OutsideScholarshipsDataLoader:
                     [
                         self._excel_safe_text(pid_text),
                         amount_value,
+                        check_number,
                         name,
                         self._excel_safe_text(ad_name),
                         self.aid_year,
@@ -277,15 +286,16 @@ class OutsideScholarshipsDataLoader:
         column_widths = {
             "A": 18,
             "B": 12,
-            "C": 26,
+            "C": 12,
             "D": 26,
-            "E": 12,
-            "F": 10,
-            "G": 26,
-            "H": 30,
-            "I": 10,
+            "E": 26,
+            "F": 12,
+            "G": 10,
+            "H": 26,
+            "I": 30,
             "J": 10,
-            "K": 40,
+            "K": 10,
+            "L": 40,
         }
         for column_name, width in column_widths.items():
             worksheet.column_dimensions[column_name].width = width
@@ -294,6 +304,35 @@ class OutsideScholarshipsDataLoader:
         last_data_row = first_data_row + max(len(rows) - 1, 0)
         for row_index in range(first_data_row, last_data_row + 1):
             worksheet.cell(row=row_index, column=2).number_format = "$#,##0.00"
+
+        try:
+            provider_col = list(headers).index("Provider") + 1
+        except ValueError:
+            provider_col = None
+        if provider_col is not None:
+            provider_letter = get_column_letter(provider_col)
+            # Cover exported rows plus room for cashiers to paste/extend below.
+            validation_end = max(last_data_row, first_data_row + 499)
+            provider_validation = DataValidation(
+                type="textLength",
+                operator="between",
+                formula1=str(PROVIDER_MIN_LENGTH),
+                formula2=str(PROVIDER_MAX_LENGTH),
+                allow_blank=False,
+                showErrorMessage=True,
+                errorTitle="Provider length",
+                error=(
+                    f"Provider must be between {PROVIDER_MIN_LENGTH} and "
+                    f"{PROVIDER_MAX_LENGTH} characters."
+                ),
+                promptTitle="Provider",
+                prompt=(
+                    f"Enter {PROVIDER_MIN_LENGTH}–{PROVIDER_MAX_LENGTH} characters."
+                ),
+                showInputMessage=True,
+            )
+            provider_validation.add(f"{provider_letter}{first_data_row}:{provider_letter}{validation_end}")
+            worksheet.add_data_validation(provider_validation)
 
         output = BytesIO()
         workbook.save(output)
