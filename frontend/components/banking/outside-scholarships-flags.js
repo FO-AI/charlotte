@@ -4,6 +4,8 @@
  */
 
 export const PID_DIGIT_COUNT = 9;
+/** Keep in sync with backend PROVIDER_MAX_LENGTH (Excel data validation). */
+export const PROVIDER_MAX_LENGTH = 30;
 
 export function isWellFormedPid(pid) {
   const digits = String(pid ?? '').replace(/\D/g, '');
@@ -76,7 +78,9 @@ export function missingRequiredFields(check) {
   const missing = [];
   if (!isValidAmount(check?.amount)) missing.push('amount');
   if (!String(check?.check_number ?? '').trim()) missing.push('check number');
-  if (!String(check?.provider ?? '').trim()) missing.push('provider');
+  const provider = String(check?.provider ?? '').trim();
+  if (!provider) missing.push('provider');
+  else if (provider.length > PROVIDER_MAX_LENGTH) missing.push('provider length');
   return missing;
 }
 
@@ -126,6 +130,7 @@ export function checkIssueShortLabels(check) {
       if (field === 'amount') push('Missing amount');
       else if (field === 'check number') push('Missing check number');
       else if (field === 'provider') push('Missing provider');
+      else if (field === 'provider length') push('Provider too long');
       else push(fieldFlag.shortLabel);
     }
   }

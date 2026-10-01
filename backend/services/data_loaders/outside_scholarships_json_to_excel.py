@@ -309,16 +309,17 @@ class OutsideScholarshipsDataLoader:
             provider_col = list(headers).index("Provider") + 1
         except ValueError:
             provider_col = None
-        if provider_col is not None:
+        if provider_col is not None and rows:
             provider_letter = get_column_letter(provider_col)
-            # Cover exported rows plus room for cashiers to paste/extend below.
+            # Cover exported rows plus room to paste/extend. allow_blank=True so empty
+            # extension rows do not error until text is entered (then 1–30 applies).
             validation_end = max(last_data_row, first_data_row + 499)
             provider_validation = DataValidation(
                 type="textLength",
                 operator="between",
                 formula1=str(PROVIDER_MIN_LENGTH),
                 formula2=str(PROVIDER_MAX_LENGTH),
-                allow_blank=False,
+                allow_blank=True,
                 showErrorMessage=True,
                 errorTitle="Provider length",
                 error=(
