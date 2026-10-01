@@ -237,9 +237,10 @@ def test_export_writes_reviewed_by_and_audit_columns(client, override_auth, app)
     export_response = client.post("/api/banking/outside-scholarships/export", json=export_body)
     assert export_response.status_code == 200, export_response.text
     worksheet = load_workbook(BytesIO(export_response.content)).active
-    assert [cell.value for cell in worksheet[REVIEW_HEADER_ROW]][:11] == [
+    assert [cell.value for cell in worksheet[REVIEW_HEADER_ROW]][:12] == [
         "PID",
         "Amount",
+        "Check #",
         "Name",
         "Active Directory Name",
         "Aid year",
@@ -254,14 +255,24 @@ def test_export_writes_reviewed_by_and_audit_columns(client, override_auth, app)
     rows = list(worksheet.iter_rows(min_row=REVIEW_FIRST_DATA_ROW, values_only=True))
     assert rows[0][0] == _JANE_PID
     assert rows[0][1] == 1250.0
-    assert rows[0][2] == "'=HYPERLINK(\"http://evil\")"
-    assert rows[0][3] == "Doe, Jane"
-    assert rows[0][8] == "Yes"
+    assert rows[0][2] == "1001"
+    assert rows[0][3] == "'=HYPERLINK(\"http://evil\")"
+    assert rows[0][4] == "Doe, Jane"
     assert rows[0][9] == "Yes"
-    assert "Amount: 100.00" in rows[0][10]
-    assert "Added PID: 730000099" in rows[0][10]
+    assert rows[0][10] == "Yes"
+    assert "Amount: 100.00" in rows[0][11]
+    assert "Added PID: 730000099" in rows[0][11]
     assert rows[1][0] == "730000099"
-    assert not rows[1][3]
+    assert rows[1][2] == "1001"
+    assert not rows[1][4]
+
+    assert worksheet.data_validations.dataValidation, "expected Provider text-length validation"
+    rule = worksheet.data_validations.dataValidation[0]
+    assert rule.type == "textLength"
+    assert rule.operator == "between"
+    assert str(rule.formula1) == "1"
+    assert str(rule.formula2) == "30"
+    assert str(rule.sqref).startswith("H"), rule.sqref
 
 
 def test_mixed_upload_produces_reviewable_workbook_artifact(client, override_auth, app):

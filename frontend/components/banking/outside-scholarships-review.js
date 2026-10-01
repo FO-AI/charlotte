@@ -33,6 +33,7 @@ import {
   missingRequiredFields,
   normalizePidDigits,
   pidEntryFlag,
+  PROVIDER_MAX_LENGTH,
   summarizeReview,
 } from '@/components/banking/outside-scholarships-flags';
 
@@ -797,7 +798,8 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
 
   const amountInvalid = missingFields.includes('amount');
   const checkNumberInvalid = missingFields.includes('check number');
-  const providerInvalid = missingFields.includes('provider');
+  const providerInvalid =
+    missingFields.includes('provider') || missingFields.includes('provider length');
 
   return (
     <TooltipProvider>
@@ -1128,9 +1130,10 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                             className={`${FOCUS_INPUT} ${providerInvalid ? ERROR_INPUT : ''}`}
                             aria-invalid={providerInvalid || undefined}
                             aria-label={`Provider for check ${selectedCheck.check_index}`}
+                            maxLength={PROVIDER_MAX_LENGTH}
                             value={selectedCheck.provider ?? ''}
                             onChange={(event) => {
-                              const value = event.target.value;
+                              const value = event.target.value.slice(0, PROVIDER_MAX_LENGTH);
                               updateCheck(selectedCheck.check_index, (current) => ({
                                 ...current,
                                 provider: value,
