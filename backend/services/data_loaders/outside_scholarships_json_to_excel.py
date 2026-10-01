@@ -13,15 +13,6 @@ PROVIDER_MIN_LENGTH = 1
 PROVIDER_MAX_LENGTH = 30
 
 
-def _active_directory_display_name(result: Optional[Mapping[str, Any]]) -> str:
-    # Lazy import: module-level import of services.banking circularizes via data_loaders.
-    from services.banking.outside_scholarships.active_directory_names import (
-        active_directory_display_name,
-    )
-
-    return active_directory_display_name(result)  # type: ignore[arg-type]
-
-
 class OutsideScholarshipsDataLoader:
     """Build an Excel workbook from outside-scholarship extraction or review output."""
 
@@ -198,14 +189,8 @@ class OutsideScholarshipsDataLoader:
 
             for entry in reviewed_pid_entries:
                 pid_text = self._normalize_pid_digits(entry.get("pid")) or self._text(entry.get("pid"))
-                # Prefer server-resolved AD names when provided (export path); ignore client AD.
-                if pid_text in self.active_directory_names:
-                    ad_name = self.active_directory_names[pid_text]
-                elif self.active_directory_names:
-                    ad_name = ""
-                else:
-                    ad = entry.get("active_directory") if isinstance(entry.get("active_directory"), dict) else None
-                    ad_name = _active_directory_display_name(ad)
+                # Server-resolved AD names only; never trust client-sent active_directory.
+                ad_name = self.active_directory_names.get(pid_text, "")
                 row_edited = edited
                 # An added PID alone marks the row edited (already in extracted_values).
                 if pid_text and pid_text not in extracted_pids:
