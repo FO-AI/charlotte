@@ -18,7 +18,7 @@ def test_preview_image_char_count_uses_front_and_back_image_keys():
         {"front_image": "data:image/jpeg;base64,cc", "back_image": None},
         "skip-me",
     ]
-    # Only front_image/back_image strings count: 24 + 25 + 23 = 72
+    # Legacy front_preview/back_preview keys must not contribute to the total.
     assert OutsideScholarshipService._preview_image_char_count(checks) == (
         len("data:image/jpeg;base64,aaa")
         + len("data:image/jpeg;base64,bbbb")
