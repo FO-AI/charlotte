@@ -275,6 +275,52 @@ def test_export_writes_reviewed_by_and_audit_columns(client, override_auth, app)
     assert str(rule.sqref).startswith("H"), rule.sqref
 
 
+def test_export_ignores_client_ad_name_when_no_digit_pids(client, override_auth, app):
+    """When lookup returns {} (no digit PIDs), export must not trust client AD names."""
+    from types import SimpleNamespace
+
+    from api.dependencies import get_azure_client, get_graph_user_directory
+    from services.azure_services import GraphUserDirectory
+
+    graph = FakeGraph({})
+    export_body = {
+        "aid_year": "2026",
+        "aid_term": "F",
+        "checks": [
+            {
+                "check_index": 1,
+                "extracted": {
+                    "amount": "100.00",
+                    "check_number": "1001",
+                    "name": "Payee 1001",
+                    "provider": "Provider 1001",
+                    "scholarship_name": "Scholarship 1001",
+                    "pids": [{"pid": "N/A", "active_directory": {"status": "found", "name": "Anyone"}}],
+                },
+                "reviewed": {
+                    "amount": "100.00",
+                    "check_number": "1001",
+                    "name": "Payee 1001",
+                    "provider": "Provider 1001",
+                    "scholarship_name": "Scholarship 1001",
+                    "pids": [{"pid": "N/A", "active_directory": {"status": "found", "name": "Anyone"}}],
+                },
+                "verified": True,
+            }
+        ],
+    }
+    app.dependency_overrides[get_azure_client] = lambda: SimpleNamespace(llm=None)
+    app.dependency_overrides[get_graph_user_directory] = lambda: GraphUserDirectory(transport=graph.transport)
+
+    export_response = client.post("/api/banking/outside-scholarships/export", json=export_body)
+    assert export_response.status_code == 200, export_response.text
+    worksheet = load_workbook(BytesIO(export_response.content)).active
+    rows = list(worksheet.iter_rows(min_row=REVIEW_FIRST_DATA_ROW, values_only=True))
+    assert rows[0][0] == "N/A"
+    assert not rows[0][4], f"expected empty AD name, got {rows[0][4]!r}"
+    assert not graph.requests, "non-digit PIDs must not call Graph"
+
+
 def test_mixed_upload_produces_reviewable_workbook_artifact(client, override_auth, app):
     graph = FakeGraph(
         {
