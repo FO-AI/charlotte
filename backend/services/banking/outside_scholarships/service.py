@@ -99,12 +99,8 @@ class OutsideScholarshipService:
                 ad_by_pid=ad_by_pid,
             )
             preview_checks = preview.get("checks", [])
-            # Size is dominated by JPEG data URLs; sum their lengths instead of re-serializing.
-            preview_image_chars = sum(
-                len(check.get("front_preview") or "") + len(check.get("back_preview") or "")
-                for check in preview_checks
-                if isinstance(check, dict)
-            )
+            # Size is dominated by JPEG data URLs on front_image/back_image.
+            preview_image_chars = self._preview_image_char_count(preview_checks)
             logger.info(
                 "outside_scholarships.service: preview ready checks=%s preview_image_chars≈%s",
                 len(preview_checks),
@@ -182,6 +178,19 @@ class OutsideScholarshipService:
         payload = result.get("final_payload", {"checks": []})
         self._log_extracted_checks(payload)
         return payload
+
+    @staticmethod
+    def _preview_image_char_count(checks: Any) -> int:
+        """Total character length of preview JPEG data URLs (front_image / back_image)."""
+        total = 0
+        for check in checks if isinstance(checks, list) else []:
+            if not isinstance(check, dict):
+                continue
+            front = check.get("front_image") or ""
+            back = check.get("back_image") or ""
+            total += len(front) if isinstance(front, str) else 0
+            total += len(back) if isinstance(back, str) else 0
+        return total
 
     @staticmethod
     def _build_preview_payload(
