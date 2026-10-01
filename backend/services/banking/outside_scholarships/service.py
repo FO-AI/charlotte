@@ -22,6 +22,8 @@ logger = get_logger(__name__)
 # Without it the graph's thread pool defaults to CPUs + 4 workers: 6 on a 2-vCPU App Service
 # instance. Raise it only if the Azure OpenAI deployment's quota allows more vision calls at once.
 MAX_CONCURRENT_CHECKS = 16
+# Keep in sync with frontend outside-scholarships-upload-modal MAX_FILE_SIZE.
+MAX_UPLOAD_BYTES = 150 * 1024 * 1024
 
 
 class OutsideScholarshipService:
@@ -52,6 +54,11 @@ class OutsideScholarshipService:
             pdf_bytes = await upload.read()
             if not pdf_bytes:
                 raise HTTPException(status_code=400, detail="Uploaded PDF is empty.")
+            if len(pdf_bytes) > MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File size too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)}MB).",
+                )
 
             try:
                 loader = OutsideScholarshipsDataLoader(aid_year=aid_year, aid_term=aid_term)
