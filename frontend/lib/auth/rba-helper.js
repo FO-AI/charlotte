@@ -1,17 +1,21 @@
 import { APIClient } from '../api-client';
 
 const fetchUserDepartment = async (getAuthHeaders, setDepartment, setUser) => {
+  const applyDepartment = (department) => {
+    // '' means fetched but unmapped; null is reserved for "not fetched yet".
+    const value = department || '';
+    setDepartment(value);
+    setUser((prev) => (prev ? { ...prev, department: value } : null));
+  };
+
   try {
     const apiClient = new APIClient(getAuthHeaders);
     const response = await apiClient.getUserDepartment();
-    if (response?.department) {
-      setDepartment(response.department);
-      // Update user object with department
-      setUser(prev => prev ? { ...prev, department: response.department } : null);
-    }
+    applyDepartment(response?.department);
   } catch (error) {
     console.error('Failed to fetch user department:', error);
-    // Don't set error state here as it might be a temporary network issue
+    // Do not leave the auth callback spinning forever on network/API failure.
+    applyDepartment('');
   }
 };
 

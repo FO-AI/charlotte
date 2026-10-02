@@ -80,7 +80,8 @@ export const AuthProvider = ({ children }) => {
       };
       setUser(userData);
 
-      if (!department) {
+      // Only refetch while department is still unknown. '' means fetched but unmapped.
+      if (department === null) {
         rbaHelper.fetchUserDepartment(getAuthHeaders, setDepartment, setUser);
       }
       if (!sessionUtils.hasActiveSession()) {
