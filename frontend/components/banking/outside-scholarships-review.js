@@ -33,6 +33,7 @@ import {
   missingRequiredFields,
   normalizePidDigits,
   pidEntryFlag,
+  DEFAULT_AID_YEAR,
   PROVIDER_MAX_LENGTH,
   summarizeReview,
 } from '@/components/banking/outside-scholarships-flags';
@@ -413,7 +414,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const [checks, setChecks] = useState(() => cloneChecks(preview?.checks || []));
   const checksRef = useRef(checks);
   checksRef.current = checks;
-  const [aidYear, setAidYear] = useState(preview?.aid_year || String(new Date().getFullYear()));
+  const [aidYear, setAidYear] = useState(preview?.aid_year || DEFAULT_AID_YEAR);
   const [aidTerm, setAidTerm] = useState(preview?.aid_term || 'F');
   const [filter, setFilter] = useState(() => {
     const initial = cloneChecks(preview?.checks || []);

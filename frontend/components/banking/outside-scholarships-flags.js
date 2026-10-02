@@ -6,6 +6,8 @@
 export const PID_DIGIT_COUNT = 9;
 /** Keep in sync with backend PROVIDER_MAX_LENGTH (Excel data validation). */
 export const PROVIDER_MAX_LENGTH = 30;
+/** Academic year label for Fall 2026 – Summer 2 2027. Keep in sync with backend DEFAULT_AID_YEAR. */
+export const DEFAULT_AID_YEAR = '2027';
 
 export function isWellFormedPid(pid) {
   const digits = String(pid ?? '').replace(/\D/g, '');

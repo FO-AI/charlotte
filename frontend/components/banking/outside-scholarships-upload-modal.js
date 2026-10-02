@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { APIClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth/auth-context-msal';
 import OutsideScholarshipsReview from '@/components/banking/outside-scholarships-review';
+import { DEFAULT_AID_YEAR } from '@/components/banking/outside-scholarships-flags';
 
 // Scanned check batches often exceed 50MB; keep in sync with backend MAX_UPLOAD_BYTES.
 const MAX_FILE_SIZE = 300 * 1024 * 1024;
@@ -67,10 +68,9 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
     apiClientRef.current = new APIClient(getAuthHeaders);
   }
   const apiClient = apiClientRef.current;
-  const defaultAidYear = String(new Date().getFullYear());
   const [phase, setPhase] = useState('idle');
   const [selectedFile, setSelectedFile] = useState(null);
-  const [aidYear, setAidYear] = useState(defaultAidYear);
+  const [aidYear, setAidYear] = useState(DEFAULT_AID_YEAR);
   const [aidTerm, setAidTerm] = useState('F');
   const [errorMessage, setErrorMessage] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
@@ -104,7 +104,7 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
   const resetState = () => {
     setPhase('idle');
     setSelectedFile(null);
-    setAidYear(defaultAidYear);
+    setAidYear(DEFAULT_AID_YEAR);
     setAidTerm('F');
     setErrorMessage('');
     setStatusMessage('');
