@@ -33,7 +33,10 @@ import {
   missingRequiredFields,
   normalizePidDigits,
   pidEntryFlag,
+  ALLOWED_AID_TERMS,
+  DEFAULT_AID_TERM,
   DEFAULT_AID_YEAR,
+  isAllowedAidTerm,
   PROVIDER_MAX_LENGTH,
   summarizeReview,
 } from '@/components/banking/outside-scholarships-flags';
@@ -415,7 +418,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const checksRef = useRef(checks);
   checksRef.current = checks;
   const [aidYear, setAidYear] = useState(preview?.aid_year || DEFAULT_AID_YEAR);
-  const [aidTerm, setAidTerm] = useState(preview?.aid_term || 'F');
+  const [aidTerm, setAidTerm] = useState(preview?.aid_term || DEFAULT_AID_TERM);
   const [filter, setFilter] = useState(() => {
     const initial = cloneChecks(preview?.checks || []);
     return summarizeReview(initial).needsReview > 0 ? 'needs_review' : 'all';
@@ -753,8 +756,8 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
       setErrorMessage('Aid year must be a 4-digit year.');
       return;
     }
-    if (!['F', 'S'].includes(aidTerm)) {
-      setErrorMessage('Aid term must be F or S.');
+    if (!isAllowedAidTerm(aidTerm)) {
+      setErrorMessage(`Aid term must be one of: ${ALLOWED_AID_TERMS.join(', ')}.`);
       return;
     }
     setExporting(true);
@@ -836,14 +839,17 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                 <span className="block mb-1.5 text-[0.95rem] font-bold text-navy">Aid term</span>
                 <select
                   value={aidTerm}
-                  className={`${FOCUS_INPUT} w-24`}
+                  className={`${FOCUS_INPUT} w-28`}
                   onChange={(event) => {
                     setAidTerm(event.target.value);
                     markDirty();
                   }}
                 >
-                  <option value="F">F</option>
-                  <option value="S">S</option>
+                  {ALLOWED_AID_TERMS.map((term) => (
+                    <option key={term} value={term}>
+                      {term}
+                    </option>
+                  ))}
                 </select>
               </label>
               <div

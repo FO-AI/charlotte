@@ -265,7 +265,7 @@ class FakeGraph:
         return httpx.Response(200, json={"value": users})
 
 
-def upload(client, app, sides, back_pids=None, graph=None, **llm_options):
+def upload(client, app, sides, back_pids=None, graph=None, aid_term="F", aid_year=None, **llm_options):
     """POST a generated check PDF through the real route with the LLM and Graph faked.
 
     The fake Azure client has an LLM and nothing else, so no Document Intelligence is
@@ -281,10 +281,13 @@ def upload(client, app, sides, back_pids=None, graph=None, **llm_options):
     if graph is not None:
         app.dependency_overrides[get_graph_user_directory] = lambda: GraphUserDirectory(transport=graph.transport)
 
+    data = {"aid_term": aid_term}
+    if aid_year is not None:
+        data["aid_year"] = aid_year
     response = client.post(
         ROUTE,
         files={"files": ("checks.pdf", build_pdf(pages), "application/pdf")},
-        data={"aid_term": "F"},
+        data=data,
     )
     return response, llm
 

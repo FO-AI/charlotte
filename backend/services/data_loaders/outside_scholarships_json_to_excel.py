@@ -13,6 +13,8 @@ PROVIDER_MIN_LENGTH = 1
 PROVIDER_MAX_LENGTH = 30
 # Academic year label for Fall 2026 – Summer 2 2027 (not calendar year of the fall term).
 DEFAULT_AID_YEAR = "2027"
+ALLOWED_AID_TERMS = frozenset({"F", "S", "F/S", "SS1", "SS2"})
+DEFAULT_AID_TERM = "F"
 
 
 class OutsideScholarshipsDataLoader:
@@ -60,9 +62,10 @@ class OutsideScholarshipsDataLoader:
 
     @staticmethod
     def _normalize_aid_term(aid_term: Optional[str]) -> str:
-        value = (aid_term or "F").strip().upper()
-        if value not in {"F", "S"}:
-            raise ValueError("Aid term must be 'F' or 'S'.")
+        value = (aid_term or "").strip().upper() or DEFAULT_AID_TERM
+        if value not in ALLOWED_AID_TERMS:
+            allowed = ", ".join(sorted(ALLOWED_AID_TERMS))
+            raise ValueError(f"Aid term must be one of: {allowed}.")
         return value
 
     @staticmethod

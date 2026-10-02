@@ -7,6 +7,10 @@ from services.banking import BankingUploadService
 from services.azure_services import AzureClient, GraphUserDirectory
 from api.dependencies import get_azure_client, get_graph_user_directory
 from services.banking import OutsideScholarshipService
+from services.data_loaders.outside_scholarships_json_to_excel import (
+    ALLOWED_AID_TERMS,
+    DEFAULT_AID_TERM,
+)
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["banking"])
@@ -47,9 +51,10 @@ async def outside_scholarships(
     content_type = (files[0].content_type or "").lower()
     if content_type and content_type != "application/pdf" and not file_name.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
-    normalized_term = (aid_term or "").strip().upper() or "F"
-    if normalized_term not in {"F", "S"}:
-        raise HTTPException(status_code=400, detail="Aid term must be 'F' or 'S'.")
+    normalized_term = (aid_term or "").strip().upper() or DEFAULT_AID_TERM
+    if normalized_term not in ALLOWED_AID_TERMS:
+        allowed = ", ".join(sorted(ALLOWED_AID_TERMS))
+        raise HTTPException(status_code=400, detail=f"Aid term must be one of: {allowed}.")
 
     outside_scholarship_service = OutsideScholarshipService(azure_client, user_directory)
     return await outside_scholarship_service.upload_and_analyze_files(
