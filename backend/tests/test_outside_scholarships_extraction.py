@@ -5,7 +5,6 @@ directly; the mixed-upload test also exports Excel to tests/artifacts/ for revie
 """
 
 import json
-from datetime import date
 from io import BytesIO
 from pathlib import Path
 
@@ -22,9 +21,10 @@ from outside_scholarships_fakes import (
     preview_payload,
     upload,
 )
+from services.data_loaders.outside_scholarships_json_to_excel import DEFAULT_AID_YEAR
 
 _ARTIFACT_PATH = Path(__file__).parent / "artifacts" / "outside_scholarships_llm_extraction.xlsx"
-_AID_YEAR = str(date.today().year)
+_AID_YEAR = DEFAULT_AID_YEAR
 _JANE_PID = "730001001"
 _JANE = graph_user(_JANE_PID, given_name="Jane", surname="Doe")
 

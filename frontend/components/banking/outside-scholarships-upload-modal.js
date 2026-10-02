@@ -9,6 +9,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { APIClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth/auth-context-msal';
 import OutsideScholarshipsReview from '@/components/banking/outside-scholarships-review';
+import {
+  ALLOWED_AID_TERMS,
+  DEFAULT_AID_TERM,
+  DEFAULT_AID_YEAR,
+  isAllowedAidTerm,
+} from '@/components/banking/outside-scholarships-flags';
 
 // Scanned check batches often exceed 50MB; keep in sync with backend MAX_UPLOAD_BYTES.
 const MAX_FILE_SIZE = 300 * 1024 * 1024;
@@ -67,11 +73,10 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
     apiClientRef.current = new APIClient(getAuthHeaders);
   }
   const apiClient = apiClientRef.current;
-  const defaultAidYear = String(new Date().getFullYear());
   const [phase, setPhase] = useState('idle');
   const [selectedFile, setSelectedFile] = useState(null);
-  const [aidYear, setAidYear] = useState(defaultAidYear);
-  const [aidTerm, setAidTerm] = useState('F');
+  const [aidYear, setAidYear] = useState(DEFAULT_AID_YEAR);
+  const [aidTerm, setAidTerm] = useState(DEFAULT_AID_TERM);
   const [errorMessage, setErrorMessage] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [preview, setPreview] = useState(null);
@@ -104,8 +109,8 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
   const resetState = () => {
     setPhase('idle');
     setSelectedFile(null);
-    setAidYear(defaultAidYear);
-    setAidTerm('F');
+    setAidYear(DEFAULT_AID_YEAR);
+    setAidTerm(DEFAULT_AID_TERM);
     setErrorMessage('');
     setStatusMessage('');
     setPreview(null);
@@ -161,8 +166,8 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
       if (!/^\d{4}$/.test(sanitizedAidYear)) {
         throw new Error('Aid year must be a 4-digit year.');
       }
-      if (!['F', 'S'].includes(aidTerm)) {
-        throw new Error('Aid term must be F or S.');
+      if (!isAllowedAidTerm(aidTerm)) {
+        throw new Error(`Aid term must be one of: ${ALLOWED_AID_TERMS.join(', ')}.`);
       }
 
       const result = await apiClient.uploadOutsideScholarshipsPdf(selectedFile, {
@@ -292,8 +297,11 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
                     onChange={(e) => setAidTerm(e.target.value)}
                     className="w-full rounded-md border px-3 py-2 text-sm bg-background focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy"
                   >
-                    <option value="F">F</option>
-                    <option value="S">S</option>
+                    {ALLOWED_AID_TERMS.map((term) => (
+                      <option key={term} value={term}>
+                        {term}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
