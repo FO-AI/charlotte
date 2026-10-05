@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import BytesIO
+import re
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from openpyxl import Workbook
@@ -111,6 +112,34 @@ class OutsideScholarshipsDataLoader:
         digits = cls._normalize_pid_digits(value)
         return digits if len(digits) == _PID_DIGIT_COUNT else None
 
+    @classmethod
+    def _nine_digit_pids_from_value(cls, value: Any) -> List[str]:
+        """Nine-digit PIDs in one cell/field, including when an approval number shares the string."""
+        text = cls._text(value)
+        if not text:
+            return []
+        whole = cls._nine_digit_pid(text)
+        if whole:
+            return [whole]
+
+        found: List[str] = []
+        seen = set()
+        for token in re.split(r"[\s,;/|]+", text):
+            pid = cls._nine_digit_pid(token)
+            if not pid or pid in seen:
+                continue
+            seen.add(pid)
+            found.append(pid)
+        if found:
+            return found
+
+        for match in re.finditer(rf"(?<!\d)\d{{{_PID_DIGIT_COUNT}}}(?!\d)", text):
+            pid = match.group(0)
+            if pid not in seen:
+                seen.add(pid)
+                found.append(pid)
+        return found
+
     @staticmethod
     def _pid_entries(check: Dict[str, Any], key: str) -> List[Dict[str, Any]]:
         raw = check.get(key)
@@ -130,11 +159,11 @@ class OutsideScholarshipsDataLoader:
         filtered: List[Dict[str, Any]] = []
         seen = set()
         for entry in entries:
-            pid = cls._nine_digit_pid(entry.get("pid"))
-            if not pid or pid in seen:
-                continue
-            seen.add(pid)
-            filtered.append({**entry, "pid": pid})
+            for pid in cls._nine_digit_pids_from_value(entry.get("pid")):
+                if pid in seen:
+                    continue
+                seen.add(pid)
+                filtered.append({**entry, "pid": pid})
         return filtered
 
     @classmethod

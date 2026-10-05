@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -212,18 +213,32 @@ class OutsideScholarshipService:
                 if not pid_text:
                     continue
                 # Defense in depth: only nine-digit student PIDs reach the review UI.
-                pid_digits = "".join(ch for ch in pid_text if ch.isdigit())
-                if len(pid_digits) != 9 or pid_digits in seen_pids:
-                    continue
-                seen_pids.add(pid_digits)
-                pids.append(
-                    {
-                        "pid": pid_digits,
-                        "active_directory": ad_by_pid.get(
-                            pid_digits, {"status": "not_found", "name": None}
-                        ),
-                    }
-                )
+                # Pull a PID out even when an approval number shares the same string.
+                candidates: List[str] = []
+                digits_only = "".join(ch for ch in pid_text if ch.isdigit())
+                if len(digits_only) == 9:
+                    candidates = [digits_only]
+                else:
+                    for token in re.split(r"[\s,;/|]+", pid_text):
+                        token_digits = "".join(ch for ch in token if ch.isdigit())
+                        if len(token_digits) == 9 and token_digits not in candidates:
+                            candidates.append(token_digits)
+                    if not candidates:
+                        for match in re.finditer(r"(?<!\d)\d{9}(?!\d)", pid_text):
+                            if match.group(0) not in candidates:
+                                candidates.append(match.group(0))
+                for pid_digits in candidates:
+                    if pid_digits in seen_pids:
+                        continue
+                    seen_pids.add(pid_digits)
+                    pids.append(
+                        {
+                            "pid": pid_digits,
+                            "active_directory": ad_by_pid.get(
+                                pid_digits, {"status": "not_found", "name": None}
+                            ),
+                        }
+                    )
             metadata = check.get("metadata") if isinstance(check.get("metadata"), dict) else {}
             preview_checks.append(
                 {

@@ -84,16 +84,49 @@ def _normalize_pid(value: Any) -> Optional[str]:
     return digits if len(digits) == _PID_DIGIT_COUNT else None
 
 
+def _pids_from_value(value: Any) -> List[str]:
+    """Nine-digit PIDs found in one field value.
+
+    Handles a bare PID, and a single string that also names an approval number
+    (for example \"730123456 1380307\" or \"PID: 730123456 / 1380307\").
+    """
+    raw = _clean_optional(value)
+    if raw is None:
+        return []
+    whole = _normalize_pid(raw)
+    if whole:
+        return [whole]
+
+    found: List[str] = []
+    seen = set()
+    for token in re.split(r"[\s,;/|]+", raw):
+        pid = _normalize_pid(token)
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        found.append(pid)
+    if found:
+        return found
+
+    # Standalone nine-digit runs that are not part of a longer number.
+    for match in re.finditer(rf"(?<!\d)\d{{{_PID_DIGIT_COUNT}}}(?!\d)", raw):
+        pid = match.group(0)
+        if pid not in seen:
+            seen.add(pid)
+            found.append(pid)
+    return found
+
+
 def _dedupe_pids(pid_values: Sequence[Any]) -> List[str]:
     normalized: List[str] = []
     seen = set()
 
     for value in pid_values:
-        pid = _normalize_pid(value)
-        if not pid or pid in seen:
-            continue
-        seen.add(pid)
-        normalized.append(pid)
+        for pid in _pids_from_value(value):
+            if pid in seen:
+                continue
+            seen.add(pid)
+            normalized.append(pid)
 
     return normalized
 

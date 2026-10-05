@@ -40,6 +40,9 @@ def test_normalize_pid_keeps_only_nine_digits():
 
 def test_dedupe_pids_drops_approval_number_beside_pid():
     assert _dedupe_pids([_PID, _APPROVAL_NUMBER, _PID]) == [_PID]
+    assert _dedupe_pids([f"{_PID} {_APPROVAL_NUMBER}"]) == [_PID]
+    assert _dedupe_pids([f"PID: {_PID} / {_APPROVAL_NUMBER}"]) == [_PID]
+    assert _dedupe_pids([f"{_PID},{_APPROVAL_NUMBER}"]) == [_PID]
 
 
 def test_ad_normalize_pid_rejects_approval_numbers():
@@ -56,7 +59,7 @@ def test_preview_payload_drops_non_nine_digit_pids():
         aid_term="F",
         checks=[
             {
-                "pid_list": [_PID, _APPROVAL_NUMBER, _PID],
+                "pid_list": [_PID, _APPROVAL_NUMBER, _PID, f"{_PID} {_APPROVAL_NUMBER}"],
                 "amount": "1000.00",
                 "check_number": "1001",
                 "name": None,
@@ -94,6 +97,26 @@ def test_excel_emits_one_row_when_check_has_pid_and_approval_number():
     assert rows[0][0] == _PID
     assert rows[0][1] == 1000.0
     assert rows[0][7] == "Cabinetworks Group Michigan, LLC"
+
+
+def test_excel_keeps_pid_when_approval_shares_same_string():
+    loader = OutsideScholarshipsDataLoader(aid_year="2027", aid_term="F")
+    rows = loader._expand_reviewed_rows(
+        [
+            {
+                "reviewed": {
+                    "pids": [{"pid": f"{_PID} {_APPROVAL_NUMBER}"}],
+                    "amount": "1000.00",
+                    "check_number": "1001",
+                    "provider": "Cabinetworks",
+                },
+                "extracted": {},
+                "verified": True,
+            }
+        ]
+    )
+
+    assert [row[0] for row in rows] == [_PID]
 
 
 def test_excel_keeps_multiple_nine_digit_pids_and_blank_when_only_approval():
