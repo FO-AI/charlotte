@@ -206,16 +206,21 @@ class OutsideScholarshipService:
                 continue
             pid_list = check.get("pid_list") if isinstance(check.get("pid_list"), list) else []
             pids = []
+            seen_pids = set()
             for pid in pid_list:
                 pid_text = str(pid).strip() if pid is not None else ""
                 if not pid_text:
                     continue
+                # Defense in depth: only nine-digit student PIDs reach the review UI.
                 pid_digits = "".join(ch for ch in pid_text if ch.isdigit())
+                if len(pid_digits) != 9 or pid_digits in seen_pids:
+                    continue
+                seen_pids.add(pid_digits)
                 pids.append(
                     {
-                        "pid": pid_digits or pid_text,
+                        "pid": pid_digits,
                         "active_directory": ad_by_pid.get(
-                            pid_digits or pid_text, {"status": "not_found", "name": None}
+                            pid_digits, {"status": "not_found", "name": None}
                         ),
                     }
                 )

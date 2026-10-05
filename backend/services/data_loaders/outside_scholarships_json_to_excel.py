@@ -15,6 +15,8 @@ PROVIDER_MAX_LENGTH = 30
 DEFAULT_AID_YEAR = "2027"
 ALLOWED_AID_TERMS = frozenset({"F", "S", "F/S", "SS1", "SS2"})
 DEFAULT_AID_TERM = "F"
+# UNC student PID: exactly nine digits. Approval / check numbers must not become Excel rows.
+_PID_DIGIT_COUNT = 9
 
 
 class OutsideScholarshipsDataLoader:
@@ -103,6 +105,12 @@ class OutsideScholarshipsDataLoader:
     def _normalize_pid_digits(value: Any) -> str:
         return "".join(ch for ch in str(value or "") if ch.isdigit())
 
+    @classmethod
+    def _nine_digit_pid(cls, value: Any) -> Optional[str]:
+        """Return the PID's digits when it is exactly nine digits; otherwise None."""
+        digits = cls._normalize_pid_digits(value)
+        return digits if len(digits) == _PID_DIGIT_COUNT else None
+
     @staticmethod
     def _pid_entries(check: Dict[str, Any], key: str) -> List[Dict[str, Any]]:
         raw = check.get(key)
@@ -115,6 +123,19 @@ class OutsideScholarshipsDataLoader:
             elif item is not None and str(item).strip():
                 entries.append({"pid": str(item).strip()})
         return entries
+
+    @classmethod
+    def _nine_digit_pid_entries(cls, entries: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Keep one entry per distinct nine-digit PID; drop approval numbers and other junk."""
+        filtered: List[Dict[str, Any]] = []
+        seen = set()
+        for entry in entries:
+            pid = cls._nine_digit_pid(entry.get("pid"))
+            if not pid or pid in seen:
+                continue
+            seen.add(pid)
+            filtered.append({**entry, "pid": pid})
+        return filtered
 
     @classmethod
     def _audit_diff(
@@ -171,8 +192,6 @@ class OutsideScholarshipsDataLoader:
                 raw_list = reviewed.get("pid_list")
                 if isinstance(raw_list, list) and raw_list:
                     reviewed_pid_entries = [{"pid": pid} for pid in raw_list]
-                else:
-                    reviewed_pid_entries = [{"pid": ""}]
 
             extracted_pid_entries = self._pid_entries(extracted, "pids")
             if not extracted_pid_entries:
@@ -180,22 +199,22 @@ class OutsideScholarshipsDataLoader:
                 if isinstance(raw_list, list):
                     extracted_pid_entries = [{"pid": pid} for pid in raw_list]
 
-            extracted_pids = [
-                self._normalize_pid_digits(entry.get("pid")) or self._text(entry.get("pid"))
-                for entry in extracted_pid_entries
-            ]
-            reviewed_pids = [
-                self._normalize_pid_digits(entry.get("pid")) or self._text(entry.get("pid"))
-                for entry in reviewed_pid_entries
-            ]
+            # Only nine-digit PIDs become rows or audit noise (issue #13: approval numbers).
+            extracted_pid_entries = self._nine_digit_pid_entries(extracted_pid_entries)
+            reviewed_pid_entries = self._nine_digit_pid_entries(reviewed_pid_entries)
+            if not reviewed_pid_entries:
+                reviewed_pid_entries = [{"pid": ""}]
+
+            extracted_pids = [entry["pid"] for entry in extracted_pid_entries]
+            reviewed_pids = [entry["pid"] for entry in reviewed_pid_entries if entry.get("pid")]
 
             edited, extracted_values = self._audit_diff(extracted, reviewed, extracted_pids, reviewed_pids)
             extracted_values = self._excel_safe_text(extracted_values)
 
             for entry in reviewed_pid_entries:
-                pid_text = self._normalize_pid_digits(entry.get("pid")) or self._text(entry.get("pid"))
+                pid_text = entry.get("pid") or ""
                 # Server-resolved AD names only; never trust client-sent active_directory.
-                ad_name = self.active_directory_names.get(pid_text, "")
+                ad_name = self.active_directory_names.get(pid_text, "") if pid_text else ""
                 row_edited = edited
                 # An added PID alone marks the row edited (already in extracted_values).
                 if pid_text and pid_text not in extracted_pids:

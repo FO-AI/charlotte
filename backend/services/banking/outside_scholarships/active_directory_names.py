@@ -12,6 +12,9 @@ logger = get_logger(__name__)
 
 AdStatus = Literal["found", "not_found", "lookup_failed"]
 
+# Keep in sync with nodes._PID_DIGIT_COUNT and the review UI PID_DIGIT_COUNT.
+_PID_DIGIT_COUNT = 9
+
 
 class ActiveDirectoryResult(TypedDict):
     status: AdStatus
@@ -29,8 +32,9 @@ def format_active_directory_name(user: DirectoryUser) -> str:
 
 
 def _normalize_pid(pid: Any) -> str:
-    """Nine-digit employeeId form: strip non-digits (e.g. 730-00-0001 → 730000001)."""
-    return "".join(ch for ch in str(pid or "") if ch.isdigit())
+    """Nine-digit employeeId form, or empty when not a student PID (e.g. approval numbers)."""
+    digits = "".join(ch for ch in str(pid or "") if ch.isdigit())
+    return digits if len(digits) == _PID_DIGIT_COUNT else ""
 
 
 def _distinct_pids_from_checks(checks: Sequence[Dict[str, Any]]) -> List[str]:
