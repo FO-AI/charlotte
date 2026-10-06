@@ -295,7 +295,7 @@ def test_export_ignores_client_ad_name_when_no_digit_pids(client, override_auth,
                     "name": "Payee 1001",
                     "provider": "Provider 1001",
                     "scholarship_name": "Scholarship 1001",
-                    "pids": [{"pid": "N/A", "active_directory": {"status": "found", "name": "Anyone"}}],
+                    "pids": [{"pid": "", "active_directory": {"status": "found", "name": "Anyone"}}],
                 },
                 "reviewed": {
                     "amount": "100.00",
@@ -303,7 +303,7 @@ def test_export_ignores_client_ad_name_when_no_digit_pids(client, override_auth,
                     "name": "Payee 1001",
                     "provider": "Provider 1001",
                     "scholarship_name": "Scholarship 1001",
-                    "pids": [{"pid": "N/A", "active_directory": {"status": "found", "name": "Anyone"}}],
+                    "pids": [{"pid": "", "active_directory": {"status": "found", "name": "Anyone"}}],
                 },
                 "verified": True,
             }
@@ -316,9 +316,9 @@ def test_export_ignores_client_ad_name_when_no_digit_pids(client, override_auth,
     assert export_response.status_code == 200, export_response.text
     worksheet = load_workbook(BytesIO(export_response.content)).active
     rows = list(worksheet.iter_rows(min_row=REVIEW_FIRST_DATA_ROW, values_only=True))
-    assert rows[0][0] in ("", None), f"non-PID values must not become Excel PID cells, got {rows[0][0]!r}"
+    assert rows[0][0] in ("", None), f"blank PID expected, got {rows[0][0]!r}"
     assert not rows[0][4], f"expected empty AD name, got {rows[0][4]!r}"
-    assert not graph.requests, "non-digit PIDs must not call Graph"
+    assert not graph.requests, "blank PIDs must not call Graph"
 
 
 def test_mixed_upload_produces_reviewable_workbook_artifact(client, override_auth, app):

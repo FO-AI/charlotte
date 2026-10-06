@@ -25,6 +25,18 @@ export function normalizePidDigits(pid) {
   return String(pid ?? '').replace(/\D/g, '');
 }
 
+/** True when a PID field has text that is not exactly nine digits (blank is OK). */
+export function isNonBlankBadPid(pid) {
+  const text = String(pid ?? '').trim();
+  return Boolean(text) && !isWellFormedPid(text);
+}
+
+/** True when any PID on the check is non-blank and malformed. */
+export function hasNonBlankBadPid(check) {
+  const pids = Array.isArray(check?.pids) ? check.pids : [];
+  return pids.some((entry) => isNonBlankBadPid(entry?.pid));
+}
+
 /**
  * Highest-priority PID flag for one entry, or null.
  * Order: missing > malformed > lookup_failed > no_ad_match

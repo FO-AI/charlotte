@@ -228,11 +228,22 @@ class OutsideScholarshipsDataLoader:
                 if isinstance(raw_list, list):
                     extracted_pid_entries = [{"pid": pid} for pid in raw_list]
 
-            # Only nine-digit PIDs become rows or audit noise (issue #13: approval numbers).
+            # Issue #13: strip approval numbers from extracted PIDs only. Reviewed values are
+            # validated in build_reviewed_excel_bytes and must not be silently dropped.
             extracted_pid_entries = self._nine_digit_pid_entries(extracted_pid_entries)
-            reviewed_pid_entries = self._nine_digit_pid_entries(reviewed_pid_entries)
-            if not reviewed_pid_entries:
-                reviewed_pid_entries = [{"pid": ""}]
+
+            normalized_reviewed: List[Dict[str, Any]] = []
+            seen_reviewed = set()
+            for entry in reviewed_pid_entries:
+                text = self._text(entry.get("pid"))
+                if not text:
+                    continue
+                digits = self._normalize_pid_digits(text) or text
+                if digits in seen_reviewed:
+                    continue
+                seen_reviewed.add(digits)
+                normalized_reviewed.append({**entry, "pid": digits})
+            reviewed_pid_entries = normalized_reviewed or [{"pid": ""}]
 
             extracted_pids = [entry["pid"] for entry in extracted_pid_entries]
             reviewed_pids = [entry["pid"] for entry in reviewed_pid_entries if entry.get("pid")]
@@ -267,9 +278,34 @@ class OutsideScholarshipsDataLoader:
 
         return rows
 
+    @classmethod
+    def _validate_reviewed_pids(cls, checks: Sequence[Dict[str, Any]]) -> None:
+        """Reject non-blank reviewed PIDs that are not exactly nine digits."""
+        for check in checks:
+            reviewed = check.get("reviewed") if isinstance(check.get("reviewed"), dict) else check
+            check_number = cls._text(reviewed.get("check_number")) or str(
+                check.get("check_index") or "?"
+            )
+            entries = cls._pid_entries(reviewed, "pids")
+            if not entries:
+                raw_list = reviewed.get("pid_list")
+                if isinstance(raw_list, list) and raw_list:
+                    entries = [{"pid": pid} for pid in raw_list]
+            for entry in entries:
+                text = cls._text(entry.get("pid"))
+                if not text:
+                    continue
+                if cls._nine_digit_pid(text) is None:
+                    bad = cls._normalize_pid_digits(text) or text
+                    raise ValueError(
+                        f"Check {check_number}: PID '{bad}' is not 9 digits. "
+                        "Fix or clear the PID before exporting."
+                    )
+
     def build_reviewed_excel_bytes(self, review_payload: Dict[str, Any]) -> BytesIO:
         checks_raw = review_payload.get("checks") if isinstance(review_payload, dict) else []
         checks = [check for check in checks_raw if isinstance(check, dict)] if isinstance(checks_raw, list) else []
+        self._validate_reviewed_pids(checks)
         rows = self._expand_reviewed_rows(checks)
         return self._write_workbook(checks, rows, headers=self.REVIEW_HEADERS, include_reviewed_by=True)
 

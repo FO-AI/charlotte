@@ -168,4 +168,30 @@ test.describe('Outside scholarships review flow', () => {
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/outside_scholarships/i);
   });
+
+  test('8-digit PID keeps Mark verified and Export Excel disabled', async ({ page }) => {
+    const eightDigitPreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          provider: 'Example Foundation',
+          pids: [{ pid: '12345678', active_directory: { status: 'not_found', name: null } }],
+        },
+      ],
+    };
+    await stubReviewApis(page, eightDigitPreview);
+    await uploadAndOpenReview(page);
+
+    await expect(page.getByText(/Bad PID/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Mark verified' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
+    await expect(page.getByText(/Bad PID — fix or clear before export/i)).toBeVisible();
+
+    const pidInput = page.getByLabel('PID for check 1');
+    await pidInput.fill('1234567');
+    await expect(pidInput).toHaveValue('1234567');
+    await expect(page.getByRole('button', { name: 'Mark verified' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
+  });
 });

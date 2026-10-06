@@ -6,6 +6,7 @@ A UNC student PID is exactly nine digits. Shorter values (e.g. 1380307) are not 
 from io import BytesIO
 from types import SimpleNamespace
 
+import pytest
 from openpyxl import load_workbook
 
 from outside_scholarships_fakes import (
@@ -74,20 +75,23 @@ def test_preview_payload_drops_non_nine_digit_pids():
     assert [entry["pid"] for entry in payload["checks"][0]["pids"]] == [_PID]
 
 
-def test_excel_emits_one_row_when_check_has_pid_and_approval_number():
+def test_excel_emits_one_row_when_extracted_has_pid_and_approval_number():
+    """Approval numbers in extracted are filtered; reviewed keeps only the real PID."""
     loader = OutsideScholarshipsDataLoader(aid_year="2027", aid_term="F")
     rows = loader._expand_reviewed_rows(
         [
             {
                 "reviewed": {
-                    "pid_list": [_PID, _APPROVAL_NUMBER],
+                    "pids": [{"pid": _PID}],
                     "amount": "1000.00",
                     "name": "",
                     "check_number": "1001",
                     "provider": "Cabinetworks Group Michigan, LLC",
                     "scholarship_name": "",
                 },
-                "extracted": {},
+                "extracted": {
+                    "pid_list": [_PID, _APPROVAL_NUMBER],
+                },
                 "verified": True,
             }
         ]
@@ -99,27 +103,7 @@ def test_excel_emits_one_row_when_check_has_pid_and_approval_number():
     assert rows[0][7] == "Cabinetworks Group Michigan, LLC"
 
 
-def test_excel_keeps_pid_when_approval_shares_same_string():
-    loader = OutsideScholarshipsDataLoader(aid_year="2027", aid_term="F")
-    rows = loader._expand_reviewed_rows(
-        [
-            {
-                "reviewed": {
-                    "pids": [{"pid": f"{_PID} {_APPROVAL_NUMBER}"}],
-                    "amount": "1000.00",
-                    "check_number": "1001",
-                    "provider": "Cabinetworks",
-                },
-                "extracted": {},
-                "verified": True,
-            }
-        ]
-    )
-
-    assert [row[0] for row in rows] == [_PID]
-
-
-def test_excel_keeps_multiple_nine_digit_pids_and_blank_when_only_approval():
+def test_excel_keeps_multiple_nine_digit_pids_and_blank_when_none():
     loader = OutsideScholarshipsDataLoader(aid_year="2027", aid_term="F")
     rows = loader._expand_reviewed_rows(
         [
@@ -128,14 +112,59 @@ def test_excel_keeps_multiple_nine_digit_pids_and_blank_when_only_approval():
                 "extracted": {},
             },
             {
-                "reviewed": {"pids": [{"pid": _APPROVAL_NUMBER}], "amount": "25.00"},
-                "extracted": {},
+                "reviewed": {"pids": [{"pid": ""}], "amount": "25.00"},
+                "extracted": {"pid_list": [_APPROVAL_NUMBER]},
             },
         ]
     )
 
     assert [row[0] for row in rows] == [_PID, _SECOND_PID, ""]
     assert [row[1] for row in rows] == [50.0, 50.0, 25.0]
+
+
+def test_build_reviewed_excel_rejects_non_nine_digit_reviewed_pid():
+    loader = OutsideScholarshipsDataLoader(aid_year="2027", aid_term="F")
+    with pytest.raises(ValueError, match=r"Check 1001: PID '73012345' is not 9 digits"):
+        loader.build_reviewed_excel_bytes(
+            {
+                "checks": [
+                    {
+                        "check_index": 1,
+                        "reviewed": {
+                            "pids": [{"pid": "73012345"}],
+                            "amount": "100.00",
+                            "check_number": "1001",
+                            "provider": "Provider",
+                        },
+                        "extracted": {"pids": [{"pid": _PID}]},
+                        "verified": True,
+                    }
+                ]
+            }
+        )
+
+
+def test_build_reviewed_excel_allows_blank_reviewed_pid():
+    loader = OutsideScholarshipsDataLoader(aid_year="2027", aid_term="F")
+    output = loader.build_reviewed_excel_bytes(
+        {
+            "checks": [
+                {
+                    "check_index": 1,
+                    "reviewed": {
+                        "pids": [{"pid": ""}],
+                        "amount": "25.00",
+                        "check_number": "1002",
+                        "provider": "Provider",
+                    },
+                    "extracted": {},
+                    "verified": True,
+                }
+            ]
+        }
+    )
+    worksheet = load_workbook(output).active
+    assert (worksheet.cell(row=7, column=1).value or "") == ""
 
 
 def test_upload_with_approval_beside_pid_exports_one_excel_row(client, override_auth, app):
@@ -161,8 +190,8 @@ def test_upload_with_approval_beside_pid_exports_one_excel_row(client, override_
     assert excel_pids == [_PID]
 
 
-def test_export_drops_client_injected_approval_number(client, override_auth, app):
-    """Export must not trust a browser-sent approval number as a second PID row."""
+def test_export_rejects_client_injected_approval_number(client, override_auth, app):
+    """A non-9-digit reviewed PID must 400 — never silently drop a scholarship row."""
     from api.dependencies import get_azure_client, get_graph_user_directory
     from services.azure_services import GraphUserDirectory
 
@@ -203,10 +232,44 @@ def test_export_drops_client_injected_approval_number(client, override_auth, app
     app.dependency_overrides[get_graph_user_directory] = lambda: GraphUserDirectory(transport=graph.transport)
 
     export_response = client.post("/api/banking/outside-scholarships/export", json=export_body)
-    assert export_response.status_code == 200, export_response.text
-    worksheet = load_workbook(BytesIO(export_response.content)).active
-    rows = list(worksheet.iter_rows(min_row=REVIEW_FIRST_DATA_ROW, values_only=True))
-    assert len(rows) == 1
-    assert rows[0][0] == _PID
-    assert not rows[0][4], f"approval must not carry a trusted AD name, got {rows[0][4]!r}"
-    assert graph.all_requested_pids() == [_PID]
+    assert export_response.status_code == 400, export_response.text
+    detail = export_response.json()["detail"]
+    assert "1001" in detail
+    assert _APPROVAL_NUMBER in detail
+
+
+def test_export_rejects_eight_digit_reviewed_pid(client, override_auth, app):
+    from api.dependencies import get_azure_client, get_graph_user_directory
+    from services.azure_services import GraphUserDirectory
+
+    graph = FakeGraph()
+    export_body = {
+        "aid_year": "2027",
+        "aid_term": "F",
+        "checks": [
+            {
+                "check_index": 1,
+                "extracted": {
+                    "amount": "100.00",
+                    "check_number": "1001",
+                    "provider": "Provider 1001",
+                    "pids": [{"pid": _PID}],
+                },
+                "reviewed": {
+                    "amount": "100.00",
+                    "check_number": "1001",
+                    "provider": "Provider 1001",
+                    "pids": [{"pid": "73012345"}],
+                },
+                "verified": True,
+            }
+        ],
+    }
+    app.dependency_overrides[get_azure_client] = lambda: SimpleNamespace(llm=None)
+    app.dependency_overrides[get_graph_user_directory] = lambda: GraphUserDirectory(transport=graph.transport)
+
+    export_response = client.post("/api/banking/outside-scholarships/export", json=export_body)
+    assert export_response.status_code == 400, export_response.text
+    detail = export_response.json()["detail"]
+    assert "1001" in detail
+    assert "73012345" in detail

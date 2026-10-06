@@ -149,10 +149,10 @@ class OutsideScholarshipService:
                 reviewed_by=reviewed_by,
                 active_directory_names=ad_name_by_pid,
             )
+            excel_output = loader.build_reviewed_excel_bytes(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        excel_output = loader.build_reviewed_excel_bytes(payload)
         file_date = datetime.now().strftime("%Y%m%d")
         filename = f"outside_scholarships_{file_date}.xlsx"
         headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
