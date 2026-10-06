@@ -30,12 +30,12 @@ export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const { getAuthHeaders } = useAuth();
-  const apiClient = new APIClient(getAuthHeaders);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         setIsLoading(true);
+        const apiClient = new APIClient(getAuthHeaders);
         const dashboardData = await apiClient.getEdiDashboardData();
         setDashboardData(dashboardData);
       } catch (error) {

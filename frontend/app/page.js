@@ -51,6 +51,7 @@ export default function Home() {
         <aside className="hero-aside">
           <div className="hero-aside-media" />
           <div className="hero-aside-copy">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               className="hero-aside-logo"
               src="/logos/Finance_and_Operations_Signature_CarolinaBlue_White_rgb_h.png"

@@ -5,6 +5,7 @@ export default function SiteFooter() {
     <footer className="site-footer">
       <div className="site-wrap site-footer-inner">
         <a href="/" className="site-footer-mark">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logos/Finance_and_Operations_Signature_CarolinaBlue_White_rgb_h.png"
             alt="UNC Finance and Operations"
