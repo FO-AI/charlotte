@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,18 +34,7 @@ export default function ChatSidebar({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    // Ensure auth headers are set before attempting to load sessions
-    if (getAuthHeaders) {
-      azureCosmosClient.setAuthHeaders(getAuthHeaders);
-    }
-
-    if (user?.email && getAuthHeaders) {
-      loadUserSessions();
-    }
-  }, [user?.email, getAuthHeaders]);
-
-  const loadUserSessions = async () => {
+  const loadUserSessions = useCallback(async () => {
     if (!user?.email) return;
 
     setLoading(true);
@@ -60,7 +49,18 @@ export default function ChatSidebar({
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.email]);
+
+  useEffect(() => {
+    // Ensure auth headers are set before attempting to load sessions
+    if (getAuthHeaders) {
+      azureCosmosClient.setAuthHeaders(getAuthHeaders);
+    }
+
+    if (user?.email && getAuthHeaders) {
+      loadUserSessions();
+    }
+  }, [user?.email, getAuthHeaders, loadUserSessions]);
 
   const handleNewChat = async () => {
     if (!user?.email) return;

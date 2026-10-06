@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useMsal, useIsAuthenticated } from "@azure/msal-react";
 import { InteractionRequiredAuthError, InteractionStatus } from "@azure/msal-browser";
 import { loginRequest } from './auth-config';
@@ -25,7 +25,7 @@ export const AuthProvider = ({ children }) => {
   const msalAuthenticated = useIsAuthenticated();
   const [department, setDepartment] = useState(null);
 
-  const getAccessToken = async () => {
+  const getAccessToken = useCallback(async () => {
     const account = accounts[0];
     if (!account) {
       throw new Error('No account found');
@@ -47,9 +47,9 @@ export const AuthProvider = ({ children }) => {
       console.error('Failed to get access token:', error);
       throw error;
     }
-  };
+  }, [instance, accounts]);
 
-  const getAuthHeaders = async () => {
+  const getAuthHeaders = useCallback(async () => {
     try {
       const token = await getAccessToken();
       if (!token) return {};
@@ -58,7 +58,7 @@ export const AuthProvider = ({ children }) => {
       console.error('Failed to get auth headers:', error);
       return {};
     }
-  };
+  }, [getAccessToken]);
 
   // Sync MSAL accounts → app user state
   useEffect(() => {
@@ -93,7 +93,7 @@ export const AuthProvider = ({ children }) => {
       sessionUtils.endSession();
     }
     setLoading(false);
-  }, [accounts, department, inProgress]);
+  }, [accounts, department, inProgress, getAuthHeaders]);
 
   const login = async () => {
     try {

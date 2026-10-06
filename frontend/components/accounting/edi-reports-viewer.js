@@ -16,7 +16,7 @@ The reports are in the pdf format.
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@/lib/auth/auth-context-msal";
 import { APIClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
@@ -55,7 +55,6 @@ import {
 export default function EDIReportsViewer() {
   const { getAuthHeaders } = useAuth();
   const [reports, setReports] = useState([]);
-  const [filteredReports, setFilteredReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedReport, setSelectedReport] = useState(null);
@@ -71,17 +70,7 @@ export default function EDIReportsViewer() {
   const [totalCount, setTotalCount] = useState(0);
   const pageSize = 20;
 
-  // Load reports on component mount and when page changes
-  useEffect(() => {
-    loadReports(currentPage);
-  }, [currentPage]);
-
-  // Filter and sort reports when search term or sort options change
-  useEffect(() => {
-    filterAndSortReports();
-  }, [reports, searchTerm, sortBy, sortOrder]);
-
-  const loadReports = async (page = 1) => {
+  const loadReports = useCallback(async (page = 1) => {
     try {
       setLoading(true);
       setError(null);
@@ -101,9 +90,14 @@ export default function EDIReportsViewer() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiClient, pageSize]);
 
-  const filterAndSortReports = () => {
+  // Load reports on component mount and when page changes
+  useEffect(() => {
+    loadReports(currentPage);
+  }, [currentPage, loadReports]);
+
+  const filteredReports = useMemo(() => {
     let filtered = [...reports];
 
     // Filter by search term
@@ -147,8 +141,8 @@ export default function EDIReportsViewer() {
       }
     });
 
-    setFilteredReports(filtered);
-  };
+    return filtered;
+  }, [reports, searchTerm, sortBy, sortOrder]);
 
   const handleViewReport = async (report) => {
     try {
