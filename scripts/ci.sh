@@ -15,7 +15,7 @@ frontend() (
   export NEXT_PUBLIC_AZURE_AD_TENANT_ID=00000000-0000-0000-0000-000000000000
   cd frontend
   npm run lint
-  # TODO(intern): add `npm run test` once the frontend has tests.
+  npm run test:e2e
   npm run build
 )
 

@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint app components hooks lib",
+    "lint": "eslint app components hooks lib --max-warnings 0",
     "test:e2e": "playwright test",
     "test:e2e:outside-scholarships": "playwright test e2e/outside-scholarships-review.spec.js"
   },

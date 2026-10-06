@@ -25,7 +25,7 @@ jobs:
           "install":"python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt",
           "run":"bash scripts/ci.sh backend"},
          {"name":"frontend","directory":".","node-version":"20",
-          "install":"npm --prefix frontend ci",
+          "install":"npm --prefix frontend ci && npx --prefix frontend playwright install --with-deps chromium",
           "run":"bash scripts/ci.sh frontend"}]
       # PR-time "does it still build" check. Never pushes; `publish` does that on main,
       # with the real NEXT_PUBLIC_* values. Placeholders are fine here.
