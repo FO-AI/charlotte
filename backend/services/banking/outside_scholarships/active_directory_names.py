@@ -5,12 +5,17 @@ UNC stores a student's PID as the Entra ID `employeeId`, so each PID is looked u
 
 from typing import Any, Dict, List, Literal, Optional, Sequence, TypedDict
 
+import re
+
 from config import get_logger
 from services.azure_services import DirectoryLookupError, DirectoryUser, GraphUserDirectory
 
 logger = get_logger(__name__)
 
 AdStatus = Literal["found", "not_found", "lookup_failed"]
+
+# Keep in sync with nodes._PID_DIGIT_COUNT and the review UI PID_DIGIT_COUNT.
+_PID_DIGIT_COUNT = 9
 
 
 class ActiveDirectoryResult(TypedDict):
@@ -29,17 +34,51 @@ def format_active_directory_name(user: DirectoryUser) -> str:
 
 
 def _normalize_pid(pid: Any) -> str:
-    """Nine-digit employeeId form: strip non-digits (e.g. 730-00-0001 → 730000001)."""
-    return "".join(ch for ch in str(pid or "") if ch.isdigit())
+    """Nine-digit employeeId form, or empty when not a student PID (e.g. approval numbers)."""
+    digits = "".join(ch for ch in str(pid or "") if ch.isdigit())
+    return digits if len(digits) == _PID_DIGIT_COUNT else ""
+
+
+def _pids_from_value(pid: Any) -> List[str]:
+    """Nine-digit PIDs in one value, including when an approval number shares the string."""
+    text = str(pid or "").strip()
+    if not text:
+        return []
+    whole = _normalize_pid(text)
+    if whole:
+        return [whole]
+
+    found: List[str] = []
+    seen = set()
+    for token in re.split(r"[\s,;/|]+", text):
+        normalized = _normalize_pid(token)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        found.append(normalized)
+    if found:
+        return found
+
+    for match in re.finditer(rf"(?<!\d)\d{{{_PID_DIGIT_COUNT}}}(?!\d)", text):
+        normalized = match.group(0)
+        if normalized not in seen:
+            seen.add(normalized)
+            found.append(normalized)
+    return found
 
 
 def _distinct_pids_from_checks(checks: Sequence[Dict[str, Any]]) -> List[str]:
-    pids = (_normalize_pid(pid) for check in checks for pid in check.get("pid_list") or [])
-    return list(dict.fromkeys(pid for pid in pids if pid))
+    pids = (
+        normalized
+        for check in checks
+        for pid in check.get("pid_list") or []
+        for normalized in _pids_from_value(pid)
+    )
+    return list(dict.fromkeys(pids))
 
 
 def _normalize_pid_list(pids: Sequence[Any]) -> List[str]:
-    return list(dict.fromkeys(_normalize_pid(pid) for pid in pids if _normalize_pid(pid)))
+    return list(dict.fromkeys(pid for value in pids for pid in _pids_from_value(value)))
 
 
 async def lookup_pids(

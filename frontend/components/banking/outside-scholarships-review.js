@@ -29,6 +29,7 @@ import {
   checkIssueShortLabels,
   checkNeedsReview,
   checkStatus,
+  hasNonBlankBadPid,
   isWellFormedPid,
   missingRequiredFields,
   normalizePidDigits,
@@ -443,6 +444,12 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const summary = useMemo(() => summarizeReview(checks), [checks]);
   const selectedCheck = checks[selectedIndex] || checks[0] || null;
   const selectedCheckId = selectedCheck?.check_index;
+  const selectedHasBadPid = useMemo(
+    () => (selectedCheck ? hasNonBlankBadPid(selectedCheck) : false),
+    [selectedCheck]
+  );
+  const anyCheckHasBadPid = useMemo(() => checks.some((check) => hasNonBlankBadPid(check)), [checks]);
+  const exportBlockedByBadPid = anyCheckHasBadPid;
   const visibleChecks = useMemo(() => {
     if (filter === 'needs_review') {
       return checks.filter(
@@ -908,11 +915,13 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                 <Button
                   type="button"
                   onClick={handleExport}
-                  disabled={exporting || summary.needsReview > 0}
+                  disabled={exporting || summary.needsReview > 0 || exportBlockedByBadPid}
                 >
                   {exporting ? 'Exporting…' : 'Export Excel'}
                 </Button>
-                {summary.needsReview > 0 ? (
+                {exportBlockedByBadPid ? (
+                  <span className="text-xs text-red-700">Bad PID — fix or clear before export</span>
+                ) : summary.needsReview > 0 ? (
                   <span className="text-xs text-muted-foreground">
                     {summary.needsReview} of {summary.checkCount} left
                   </span>
@@ -1192,9 +1201,20 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                           </p>
                         </div>
                         {checkNeedsReview(selectedCheck) || selectedCheck.verified ? (
-                          <Button type="button" variant="outline" size="sm" onClick={toggleVerified}>
-                            {selectedCheck.verified ? 'Undo' : 'Mark verified'}
-                          </Button>
+                          <div className="flex flex-col items-end gap-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={toggleVerified}
+                              disabled={!selectedCheck.verified && selectedHasBadPid}
+                            >
+                              {selectedCheck.verified ? 'Undo' : 'Mark verified'}
+                            </Button>
+                            {!selectedCheck.verified && selectedHasBadPid ? (
+                              <span className="text-xs text-red-700">Bad PID</span>
+                            ) : null}
+                          </div>
                         ) : null}
                       </div>
 
@@ -1226,10 +1246,13 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                       className={`${FOCUS_INPUT} ${pidInvalid ? ERROR_INPUT : ''}`}
                                       aria-invalid={pidInvalid || undefined}
                                       inputMode="numeric"
-                                      maxLength={11}
+                                      maxLength={9}
                                       value={entry.pid ?? ''}
                                       onChange={(event) => {
-                                        const value = event.target.value;
+                                        const value = normalizePidDigits(event.target.value).slice(
+                                          0,
+                                          9
+                                        );
                                         updateCheck(selectedCheck.check_index, (current) => {
                                           const next = [...current.pids];
                                           const idx = next.findIndex((item) => item._key === pidKey);

@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -148,10 +149,10 @@ class OutsideScholarshipService:
                 reviewed_by=reviewed_by,
                 active_directory_names=ad_name_by_pid,
             )
+            excel_output = loader.build_reviewed_excel_bytes(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        excel_output = loader.build_reviewed_excel_bytes(payload)
         file_date = datetime.now().strftime("%Y%m%d")
         filename = f"outside_scholarships_{file_date}.xlsx"
         headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
@@ -206,19 +207,38 @@ class OutsideScholarshipService:
                 continue
             pid_list = check.get("pid_list") if isinstance(check.get("pid_list"), list) else []
             pids = []
+            seen_pids = set()
             for pid in pid_list:
                 pid_text = str(pid).strip() if pid is not None else ""
                 if not pid_text:
                     continue
-                pid_digits = "".join(ch for ch in pid_text if ch.isdigit())
-                pids.append(
-                    {
-                        "pid": pid_digits or pid_text,
-                        "active_directory": ad_by_pid.get(
-                            pid_digits or pid_text, {"status": "not_found", "name": None}
-                        ),
-                    }
-                )
+                # Defense in depth: only nine-digit student PIDs reach the review UI.
+                # Pull a PID out even when an approval number shares the same string.
+                candidates: List[str] = []
+                digits_only = "".join(ch for ch in pid_text if ch.isdigit())
+                if len(digits_only) == 9:
+                    candidates = [digits_only]
+                else:
+                    for token in re.split(r"[\s,;/|]+", pid_text):
+                        token_digits = "".join(ch for ch in token if ch.isdigit())
+                        if len(token_digits) == 9 and token_digits not in candidates:
+                            candidates.append(token_digits)
+                    if not candidates:
+                        for match in re.finditer(r"(?<!\d)\d{9}(?!\d)", pid_text):
+                            if match.group(0) not in candidates:
+                                candidates.append(match.group(0))
+                for pid_digits in candidates:
+                    if pid_digits in seen_pids:
+                        continue
+                    seen_pids.add(pid_digits)
+                    pids.append(
+                        {
+                            "pid": pid_digits,
+                            "active_directory": ad_by_pid.get(
+                                pid_digits, {"status": "not_found", "name": None}
+                            ),
+                        }
+                    )
             metadata = check.get("metadata") if isinstance(check.get("metadata"), dict) else {}
             preview_checks.append(
                 {
