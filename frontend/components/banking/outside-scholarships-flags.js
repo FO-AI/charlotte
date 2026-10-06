@@ -25,6 +25,11 @@ export function normalizePidDigits(pid) {
   return String(pid ?? '').replace(/\D/g, '');
 }
 
+/** Cap provider to the Excel / Connect Carolina max length (does not trim mid-word). */
+export function truncateProvider(value) {
+  return String(value ?? '').slice(0, PROVIDER_MAX_LENGTH);
+}
+
 /** True when a PID field has text that is not exactly nine digits (blank is OK). */
 export function isNonBlankBadPid(pid) {
   const text = String(pid ?? '').trim();
@@ -101,7 +106,6 @@ export function missingRequiredFields(check) {
   if (!String(check?.check_number ?? '').trim()) missing.push('check number');
   const provider = String(check?.provider ?? '').trim();
   if (!provider) missing.push('provider');
-  else if (provider.length > PROVIDER_MAX_LENGTH) missing.push('provider length');
   return missing;
 }
 
@@ -151,7 +155,6 @@ export function checkIssueShortLabels(check) {
       if (field === 'amount') push('Missing amount');
       else if (field === 'check number') push('Missing check number');
       else if (field === 'provider') push('Missing provider');
-      else if (field === 'provider length') push('Provider too long');
       else push(fieldFlag.shortLabel);
     }
   }

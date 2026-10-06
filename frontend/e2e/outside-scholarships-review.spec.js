@@ -194,4 +194,32 @@ test.describe('Outside scholarships review flow', () => {
     await expect(page.getByRole('button', { name: 'Mark verified' })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
   });
+
+  test('long provider is truncated and does not block export', async ({ page }) => {
+    const longProvider = 'North Carolina Community Foundation Scholarship Fund';
+    expect(longProvider.length).toBeGreaterThan(30);
+    const truncatedProvider = longProvider.slice(0, 30);
+
+    const longProviderPreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          provider: longProvider,
+          pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } }],
+        },
+      ],
+    };
+    await stubReviewApis(page, longProviderPreview);
+    await uploadAndOpenReview(page);
+
+    await expect(page.getByText(/Provider too long/i)).toHaveCount(0);
+    const providerInput = page.getByLabel('Provider for check 1');
+    await expect(providerInput).toHaveValue(truncatedProvider);
+    await expect(providerInput).toHaveJSProperty('value', truncatedProvider);
+    expect((await providerInput.inputValue()).length).toBeLessThanOrEqual(30);
+
+    await expect(page.getByText(/0 of 1 left/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
+  });
 });

@@ -40,6 +40,7 @@ import {
   isAllowedAidTerm,
   PROVIDER_MAX_LENGTH,
   summarizeReview,
+  truncateProvider,
 } from '@/components/banking/outside-scholarships-flags';
 
 const FOCUS_INPUT =
@@ -291,9 +292,10 @@ function blankPidEntry() {
   return { pid: '', _key: nextPidKey(), active_directory: { status: 'not_found', name: null } };
 }
 
-function cloneChecks(checks) {
+function cloneChecks(checks, { truncateProviders = false } = {}) {
   return (checks || []).map((check) => ({
     ...check,
+    provider: truncateProviders ? truncateProvider(check.provider) : check.provider,
     pids: checksPidsWithKeys(check.pids),
     verified: false,
     _editedFields: {},
@@ -415,17 +417,19 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const apiClient = apiClientRef.current;
 
   const extractedRef = useRef(cloneChecks(preview?.checks || []));
-  const [checks, setChecks] = useState(() => cloneChecks(preview?.checks || []));
+  const [checks, setChecks] = useState(() =>
+    cloneChecks(preview?.checks || [], { truncateProviders: true })
+  );
   const checksRef = useRef(checks);
   checksRef.current = checks;
   const [aidYear, setAidYear] = useState(preview?.aid_year || DEFAULT_AID_YEAR);
   const [aidTerm, setAidTerm] = useState(preview?.aid_term || DEFAULT_AID_TERM);
   const [filter, setFilter] = useState(() => {
-    const initial = cloneChecks(preview?.checks || []);
+    const initial = cloneChecks(preview?.checks || [], { truncateProviders: true });
     return summarizeReview(initial).needsReview > 0 ? 'needs_review' : 'all';
   });
   const [selectedIndex, setSelectedIndex] = useState(() => {
-    const initial = cloneChecks(preview?.checks || []);
+    const initial = cloneChecks(preview?.checks || [], { truncateProviders: true });
     const firstNeeding = initial.findIndex((check) => checkNeedsReview(check));
     return firstNeeding >= 0 ? firstNeeding : 0;
   });
@@ -809,8 +813,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
 
   const amountInvalid = missingFields.includes('amount');
   const checkNumberInvalid = missingFields.includes('check number');
-  const providerInvalid =
-    missingFields.includes('provider') || missingFields.includes('provider length');
+  const providerInvalid = missingFields.includes('provider');
 
   return (
     <TooltipProvider>
