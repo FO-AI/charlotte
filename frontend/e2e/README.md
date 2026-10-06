@@ -13,4 +13,7 @@ npm run test:e2e:outside-scholarships
 
 Artifacts (trace, screenshots, HTML report) land under `e2e/artifacts/`.
 
-CI: not wired into `scripts/ci.sh` yet — keep backend CI green; run this locally before merging review-UI changes.
+CI: `bash scripts/ci.sh frontend` runs `npm run test:e2e` (all tests under `e2e/`) after lint
+and before `next build`. The GitHub Actions frontend install step installs Chromium with
+`npx --prefix frontend playwright install --with-deps chromium`. Locally, install Chromium
+yourself (`npx playwright install chromium`) before running `bash scripts/ci.sh frontend`.

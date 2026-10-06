@@ -11,7 +11,7 @@ document covers only what is specific to Charlotte.
 | Piece | State |
 | --- | --- |
 | `.github/workflows/ci.yml` | **Live.** Runs on every PR and every push to `main`. |
-| `scripts/ci.sh` | **Live**, with starter checks (see below). Needs real tests. |
+| `scripts/ci.sh` | **Live.** Backend ruff+pytest; frontend lint (`--max-warnings 0`), Playwright e2e, then build. |
 | `publish` job in `ci.yml` | **Live.** Runs on every push to `main` after `verify`. |
 | `scripts/publish.sh` | **Implemented.** Builds both images in ACR by commit SHA and proves digests. |
 | `.github/workflows/cd.yml` | **Wired, manual only.** `workflow_run` is commented out. |
@@ -58,9 +58,10 @@ What the checks do today:
   `TestClient`. This catches broken imports and missing dependencies, and nothing else. The pip
   install (chromadb, grpcio, huggingface-hub) takes a few minutes on CI because nothing is
   cached. That's expected.
-- **frontend**: `next lint`, then `next build` with placeholder `NEXT_PUBLIC_*` values. Lint
-  warnings are allowed. Lint errors fail the check. Note that `next.config.js` sets
-  `ignoreDuringBuilds`, so the build step never lints; `ci.sh` runs lint separately.
+- **frontend**: `eslint` with `--max-warnings 0`, then Playwright e2e (`npm run test:e2e`),
+  then `next build` with placeholder `NEXT_PUBLIC_*` values. Any lint warning fails the check.
+  Note that `next.config.js` sets `ignoreDuringBuilds`, so the build step never lints;
+  `ci.sh` runs lint separately. Chromium is installed in the workflow frontend install step.
 - **Build backend / Build frontend**: Docker builds of each Dockerfile. They never push.
   They run only after both checks pass.
 
