@@ -435,6 +435,8 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const [successMessage, setSuccessMessage] = useState('');
   const [liveMessage, setLiveMessage] = useState('');
   const [dirty, setDirty] = useState(false);
+  // Provider edits stay local until Enter so Needs review / auto-advance do not fire mid-type.
+  const [providerDraft, setProviderDraft] = useState(null);
   const lookupSeqRef = useRef({});
   const rowRefs = useRef({});
   // Tracks needs-review for the *same* check only — used so selecting another check
@@ -444,6 +446,14 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const summary = useMemo(() => summarizeReview(checks), [checks]);
   const selectedCheck = checks[selectedIndex] || checks[0] || null;
   const selectedCheckId = selectedCheck?.check_index;
+  const providerDraftDirty =
+    providerDraft != null &&
+    providerDraft.checkIndex === selectedCheckId &&
+    providerDraft.value !== String(selectedCheck?.provider ?? '');
+  const providerInputValue =
+    providerDraft?.checkIndex === selectedCheckId
+      ? providerDraft.value
+      : (selectedCheck?.provider ?? '');
   const selectedHasBadPid = useMemo(
     () => (selectedCheck ? hasNonBlankBadPid(selectedCheck) : false),
     [selectedCheck]
@@ -541,6 +551,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   );
 
   const selectCheckByAbsoluteIndex = useCallback((index) => {
+    setProviderDraft(null);
     setSelectedIndex(index);
     const check = checksRef.current[index];
     if (check) {
@@ -560,10 +571,44 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     }
   }, [selectCheckByAbsoluteIndex, selectedIndex]);
 
+  const commitProviderDraft = useCallback(() => {
+    if (!selectedCheck || providerDraft?.checkIndex !== selectedCheck.check_index) {
+      return;
+    }
+    const value = String(providerDraft.value ?? '')
+      .trim()
+      .slice(0, PROVIDER_MAX_LENGTH);
+    updateCheck(selectedCheck.check_index, (current) => ({
+      ...current,
+      provider: value,
+    }));
+    setProviderDraft(null);
+  }, [providerDraft, selectedCheck, updateCheck]);
+
+  const revertProviderDraft = useCallback(() => {
+    setProviderDraft(null);
+  }, []);
+
+  // Drop an in-progress Provider draft when the selected check changes from elsewhere.
+  useEffect(() => {
+    setProviderDraft((prev) => {
+      if (!prev || prev.checkIndex === selectedCheckId) return prev;
+      return null;
+    });
+  }, [selectedCheckId]);
+
   // Auto-advance when the *currently selected* check stops needing review.
   useEffect(() => {
     if (!selectedCheck) {
       prevNeedsReviewRef.current = null;
+      return;
+    }
+    // Hold auto-advance while Provider is still being typed (uncommitted draft).
+    if (providerDraftDirty) {
+      prevNeedsReviewRef.current = {
+        checkIndex: selectedCheck.check_index,
+        needs: checkNeedsReview(selectedCheck),
+      };
       return;
     }
     const needs = checkNeedsReview(selectedCheck);
@@ -588,7 +633,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
       checkIndex: selectedCheck.check_index,
       needs,
     };
-  }, [checks, selectedCheck, selectedIndex, selectCheckByAbsoluteIndex]);
+  }, [checks, selectedCheck, selectedIndex, selectCheckByAbsoluteIndex, providerDraftDirty]);
 
   const lookupPid = useCallback(
     async (checkIndex, pidKey, pidValue) => {
@@ -1147,13 +1192,33 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                             aria-invalid={providerInvalid || undefined}
                             aria-label={`Provider for check ${selectedCheck.check_index}`}
                             maxLength={PROVIDER_MAX_LENGTH}
-                            value={selectedCheck.provider ?? ''}
+                            value={providerInputValue}
                             onChange={(event) => {
                               const value = event.target.value.slice(0, PROVIDER_MAX_LENGTH);
-                              updateCheck(selectedCheck.check_index, (current) => ({
-                                ...current,
-                                provider: value,
-                              }));
+                              setProviderDraft({
+                                checkIndex: selectedCheck.check_index,
+                                value,
+                              });
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                commitProviderDraft();
+                                return;
+                              }
+                              if (
+                                event.key === 'Escape' &&
+                                providerDraft?.checkIndex === selectedCheck.check_index
+                              ) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                revertProviderDraft();
+                              }
+                            }}
+                            onBlur={() => {
+                              if (providerDraft?.checkIndex === selectedCheck.check_index) {
+                                revertProviderDraft();
+                              }
                             }}
                           />
                           <EditedMarker

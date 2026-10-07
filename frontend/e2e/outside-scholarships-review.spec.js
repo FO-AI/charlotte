@@ -194,4 +194,67 @@ test.describe('Outside scholarships review flow', () => {
     await expect(page.getByRole('button', { name: 'Mark verified' })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
   });
+
+  // Provider commits on Enter only — typing a valid short name must not auto-advance mid-edit.
+  test('provider draft does not auto-advance until Enter', async ({ page }) => {
+    const longProvider = 'Henderson County Education Foundation Inc';
+    expect(longProvider.length).toBeGreaterThan(30);
+
+    const okPid = {
+      pid: FIXED_PID,
+      active_directory: { status: 'found', name: AD_NAME },
+    };
+    const multiCheckPreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          check_index: 1,
+          provider: longProvider,
+          pids: [okPid],
+        },
+        {
+          ...preview.checks[0],
+          check_index: 2,
+          check_number: '1002',
+          provider: '',
+          pids: [okPid],
+        },
+      ],
+    };
+    await stubReviewApis(page, multiCheckPreview);
+    await uploadAndOpenReview(page);
+
+    await expect(page.getByText(/Provider too long/i).first()).toBeVisible();
+    await expect(page.getByRole('option', { name: /Check 1/i })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+
+    const providerInput = page.getByLabel('Provider for check 1');
+    await expect(providerInput).toHaveValue(longProvider);
+    await providerInput.click();
+    await providerInput.fill('Short Provider');
+    await expect(providerInput).toHaveValue('Short Provider');
+
+    // Still on check 1 — uncommitted draft must not clear Needs review / auto-advance.
+    await expect(page.getByRole('option', { name: /Check 1/i })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    await expect(page.getByText(/Provider too long/i).first()).toBeVisible();
+
+    await providerInput.press('Escape');
+    await expect(providerInput).toHaveValue(longProvider);
+
+    await providerInput.fill('Short Provider');
+    await providerInput.press('Enter');
+
+    await expect(page.getByRole('option', { name: /Check 2/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+      { timeout: 10_000 }
+    );
+    await expect(page.getByText(/Missing provider/i).first()).toBeVisible();
+  });
 });
