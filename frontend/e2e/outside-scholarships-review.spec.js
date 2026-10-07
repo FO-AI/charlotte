@@ -257,4 +257,64 @@ test.describe('Outside scholarships review flow', () => {
     );
     await expect(page.getByText(/Missing provider/i).first()).toBeVisible();
   });
+
+  // Amount commits on Enter only — typing a valid amount must not auto-advance mid-edit.
+  test('amount draft does not auto-advance until Enter', async ({ page }) => {
+    const okPid = {
+      pid: FIXED_PID,
+      active_directory: { status: 'found', name: AD_NAME },
+    };
+    const multiCheckPreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          check_index: 1,
+          amount: '',
+          provider: 'Example Foundation',
+          pids: [okPid],
+        },
+        {
+          ...preview.checks[0],
+          check_index: 2,
+          check_number: '1002',
+          amount: '10.00',
+          provider: '',
+          pids: [okPid],
+        },
+      ],
+    };
+    await stubReviewApis(page, multiCheckPreview);
+    await uploadAndOpenReview(page);
+
+    await expect(page.getByText(/Missing amount/i).first()).toBeVisible();
+    await expect(page.getByRole('option', { name: /Check 1/i })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+
+    const amountInput = page.getByLabel('Amount for check 1');
+    await amountInput.click();
+    await amountInput.fill('250.00');
+    await expect(amountInput).toHaveValue('250.00');
+
+    await expect(page.getByRole('option', { name: /Check 1/i })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    await expect(page.getByText(/Missing amount/i).first()).toBeVisible();
+
+    await amountInput.press('Escape');
+    await expect(amountInput).toHaveValue('');
+
+    await amountInput.fill('250.00');
+    await amountInput.press('Enter');
+
+    await expect(page.getByRole('option', { name: /Check 2/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+      { timeout: 10_000 }
+    );
+    await expect(page.getByText(/Missing provider/i).first()).toBeVisible();
+  });
 });
