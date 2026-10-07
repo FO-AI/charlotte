@@ -435,8 +435,9 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const [successMessage, setSuccessMessage] = useState('');
   const [liveMessage, setLiveMessage] = useState('');
   const [dirty, setDirty] = useState(false);
-  // Provider edits stay local until Enter so Needs review / auto-advance do not fire mid-type.
-  const [providerDraft, setProviderDraft] = useState(null);
+  // Zoopable field edits stay local until Enter so Needs review / auto-advance do not fire mid-type.
+  // Shape: { checkIndex, field: 'amount'|'check_number'|'provider'|'pid', pidKey?, value }
+  const [fieldDraft, setFieldDraft] = useState(null);
   const lookupSeqRef = useRef({});
   const rowRefs = useRef({});
   // Tracks needs-review for the *same* check only — used so selecting another check
@@ -446,14 +447,44 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const summary = useMemo(() => summarizeReview(checks), [checks]);
   const selectedCheck = checks[selectedIndex] || checks[0] || null;
   const selectedCheckId = selectedCheck?.check_index;
-  const providerDraftDirty =
-    providerDraft != null &&
-    providerDraft.checkIndex === selectedCheckId &&
-    providerDraft.value !== String(selectedCheck?.provider ?? '');
-  const providerInputValue =
-    providerDraft?.checkIndex === selectedCheckId
-      ? providerDraft.value
-      : (selectedCheck?.provider ?? '');
+
+  const committedFieldValue = useCallback((check, field, pidKey) => {
+    if (!check) return '';
+    if (field === 'pid') {
+      const entry = (check.pids || []).find((item) => item._key === pidKey);
+      return String(entry?.pid ?? '');
+    }
+    if (field === 'amount') return String(check.amount ?? '');
+    if (field === 'check_number') return String(check.check_number ?? '');
+    if (field === 'provider') return String(check.provider ?? '');
+    return '';
+  }, []);
+
+  const fieldDraftMatches = useCallback(
+    (field, pidKey) => {
+      if (!fieldDraft || fieldDraft.checkIndex !== selectedCheckId || fieldDraft.field !== field) {
+        return false;
+      }
+      if (field === 'pid') return fieldDraft.pidKey === pidKey;
+      return true;
+    },
+    [fieldDraft, selectedCheckId]
+  );
+
+  const fieldDraftDirty = useMemo(() => {
+    if (!fieldDraft || fieldDraft.checkIndex !== selectedCheckId || !selectedCheck) return false;
+    const committed = committedFieldValue(selectedCheck, fieldDraft.field, fieldDraft.pidKey);
+    return fieldDraft.value !== committed;
+  }, [fieldDraft, selectedCheckId, selectedCheck, committedFieldValue]);
+
+  const fieldInputValue = useCallback(
+    (field, pidKey) => {
+      if (fieldDraftMatches(field, pidKey)) return fieldDraft.value;
+      return committedFieldValue(selectedCheck, field, pidKey);
+    },
+    [fieldDraft, fieldDraftMatches, committedFieldValue, selectedCheck]
+  );
+
   const selectedHasBadPid = useMemo(
     () => (selectedCheck ? hasNonBlankBadPid(selectedCheck) : false),
     [selectedCheck]
@@ -551,7 +582,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   );
 
   const selectCheckByAbsoluteIndex = useCallback((index) => {
-    setProviderDraft(null);
+    setFieldDraft(null);
     setSelectedIndex(index);
     const check = checksRef.current[index];
     if (check) {
@@ -571,27 +602,80 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     }
   }, [selectCheckByAbsoluteIndex, selectedIndex]);
 
-  const commitProviderDraft = useCallback(() => {
-    if (!selectedCheck || providerDraft?.checkIndex !== selectedCheck.check_index) {
-      return;
-    }
-    const value = String(providerDraft.value ?? '')
-      .trim()
-      .slice(0, PROVIDER_MAX_LENGTH);
-    updateCheck(selectedCheck.check_index, (current) => ({
-      ...current,
-      provider: value,
-    }));
-    setProviderDraft(null);
-  }, [providerDraft, selectedCheck, updateCheck]);
-
-  const revertProviderDraft = useCallback(() => {
-    setProviderDraft(null);
+  const revertFieldDraft = useCallback(() => {
+    setFieldDraft(null);
   }, []);
 
-  // Drop an in-progress Provider draft when the selected check changes from elsewhere.
+  const beginFieldDraft = useCallback(
+    (field, value, pidKey) => {
+      if (!selectedCheck) return;
+      setFieldDraft({
+        checkIndex: selectedCheck.check_index,
+        field,
+        value,
+        ...(field === 'pid' ? { pidKey } : {}),
+      });
+    },
+    [selectedCheck]
+  );
+
+  /** Commit matching draft (if any). Returns the value now stored on the check for that field. */
+  const commitFieldDraftFor = useCallback(
+    (field, pidKey) => {
+      if (!selectedCheck) return committedFieldValue(null, field, pidKey);
+      const matches =
+        fieldDraft &&
+        fieldDraft.checkIndex === selectedCheck.check_index &&
+        fieldDraft.field === field &&
+        (field !== 'pid' || fieldDraft.pidKey === pidKey);
+
+      if (!matches) {
+        return committedFieldValue(selectedCheck, field, pidKey);
+      }
+
+      let committed = String(fieldDraft.value ?? '');
+      if (field === 'amount' || field === 'check_number') {
+        committed = committed.trim();
+        updateCheck(selectedCheck.check_index, (current) => ({
+          ...current,
+          [field]: committed,
+        }));
+      } else if (field === 'provider') {
+        committed = committed.trim().slice(0, PROVIDER_MAX_LENGTH);
+        updateCheck(selectedCheck.check_index, (current) => ({
+          ...current,
+          provider: committed,
+        }));
+      } else if (field === 'pid') {
+        committed = normalizePidDigits(committed).slice(0, 9);
+        const previous = committedFieldValue(selectedCheck, 'pid', pidKey);
+        // Only reset AD when the PID actually changes. Clearing AD on a no-op commit
+        // races lookupPid's early-return (stale checksRef) and drops a good match.
+        if (committed !== previous) {
+          updateCheck(selectedCheck.check_index, (current) => {
+            const next = [...(current.pids || [])];
+            const idx = next.findIndex((item) => item._key === pidKey);
+            if (idx < 0) return current;
+            next[idx] = {
+              ...next[idx],
+              pid: committed,
+              active_directory: { status: 'not_found', name: null },
+              lookingUp: false,
+              _lookedUpFor: undefined,
+            };
+            return { ...current, pids: next };
+          });
+        }
+      }
+      setFieldDraft(null);
+      return committed;
+    },
+    [selectedCheck, fieldDraft, committedFieldValue, updateCheck]
+  );
+
+  // Drop an in-progress field draft when the selected check changes from elsewhere.
   useEffect(() => {
-    setProviderDraft((prev) => {
+    setFieldDraft((prev) => {
       if (!prev || prev.checkIndex === selectedCheckId) return prev;
       return null;
     });
@@ -603,8 +687,8 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
       prevNeedsReviewRef.current = null;
       return;
     }
-    // Hold auto-advance while Provider is still being typed (uncommitted draft).
-    if (providerDraftDirty) {
+    // Hold auto-advance while a zoopable field is still being typed (uncommitted draft).
+    if (fieldDraftDirty) {
       prevNeedsReviewRef.current = {
         checkIndex: selectedCheck.check_index,
         needs: checkNeedsReview(selectedCheck),
@@ -633,7 +717,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
       checkIndex: selectedCheck.check_index,
       needs,
     };
-  }, [checks, selectedCheck, selectedIndex, selectCheckByAbsoluteIndex, providerDraftDirty]);
+  }, [checks, selectedCheck, selectedIndex, selectCheckByAbsoluteIndex, fieldDraftDirty]);
 
   const lookupPid = useCallback(
     async (checkIndex, pidKey, pidValue) => {
@@ -1140,13 +1224,24 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                             className={`${FOCUS_INPUT} ${amountInvalid ? ERROR_INPUT : ''}`}
                             aria-invalid={amountInvalid || undefined}
                             aria-label={`Amount for check ${selectedCheck.check_index}`}
-                            value={selectedCheck.amount ?? ''}
+                            value={fieldInputValue('amount')}
                             onChange={(event) => {
-                              const value = event.target.value;
-                              updateCheck(selectedCheck.check_index, (current) => ({
-                                ...current,
-                                amount: value,
-                              }));
+                              beginFieldDraft('amount', event.target.value);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                commitFieldDraftFor('amount');
+                                return;
+                              }
+                              if (event.key === 'Escape' && fieldDraftMatches('amount')) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                revertFieldDraft();
+                              }
+                            }}
+                            onBlur={() => {
+                              if (fieldDraftMatches('amount')) revertFieldDraft();
                             }}
                           />
                           <EditedMarker
@@ -1165,13 +1260,24 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                             className={`${FOCUS_INPUT} ${checkNumberInvalid ? ERROR_INPUT : ''}`}
                             aria-invalid={checkNumberInvalid || undefined}
                             aria-label={`Check number for check ${selectedCheck.check_index}`}
-                            value={selectedCheck.check_number ?? ''}
+                            value={fieldInputValue('check_number')}
                             onChange={(event) => {
-                              const value = event.target.value;
-                              updateCheck(selectedCheck.check_index, (current) => ({
-                                ...current,
-                                check_number: value,
-                              }));
+                              beginFieldDraft('check_number', event.target.value);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                commitFieldDraftFor('check_number');
+                                return;
+                              }
+                              if (event.key === 'Escape' && fieldDraftMatches('check_number')) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                revertFieldDraft();
+                              }
+                            }}
+                            onBlur={() => {
+                              if (fieldDraftMatches('check_number')) revertFieldDraft();
                             }}
                           />
                           <EditedMarker
@@ -1192,33 +1298,27 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                             aria-invalid={providerInvalid || undefined}
                             aria-label={`Provider for check ${selectedCheck.check_index}`}
                             maxLength={PROVIDER_MAX_LENGTH}
-                            value={providerInputValue}
+                            value={fieldInputValue('provider')}
                             onChange={(event) => {
-                              const value = event.target.value.slice(0, PROVIDER_MAX_LENGTH);
-                              setProviderDraft({
-                                checkIndex: selectedCheck.check_index,
-                                value,
-                              });
+                              beginFieldDraft(
+                                'provider',
+                                event.target.value.slice(0, PROVIDER_MAX_LENGTH)
+                              );
                             }}
                             onKeyDown={(event) => {
                               if (event.key === 'Enter') {
                                 event.preventDefault();
-                                commitProviderDraft();
+                                commitFieldDraftFor('provider');
                                 return;
                               }
-                              if (
-                                event.key === 'Escape' &&
-                                providerDraft?.checkIndex === selectedCheck.check_index
-                              ) {
+                              if (event.key === 'Escape' && fieldDraftMatches('provider')) {
                                 event.preventDefault();
                                 event.stopPropagation();
-                                revertProviderDraft();
+                                revertFieldDraft();
                               }
                             }}
                             onBlur={() => {
-                              if (providerDraft?.checkIndex === selectedCheck.check_index) {
-                                revertProviderDraft();
-                              }
+                              if (fieldDraftMatches('provider')) revertFieldDraft();
                             }}
                           />
                           <EditedMarker
@@ -1290,6 +1390,10 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                           const extractedPid = (originalSelected.pids || [])[pidIndex]?.pid;
                           const pidKey = entry._key;
                           const adFound = entry.active_directory?.status === 'found';
+                          // While rewriting a PID, hide the prior AD match until Enter/Search commits.
+                          const pidDraftDiffers =
+                            fieldDraftMatches('pid', pidKey) &&
+                            fieldInputValue('pid', pidKey) !== String(entry.pid ?? '');
                           return (
                             <div
                               key={pidKey}
@@ -1312,35 +1416,33 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                       aria-invalid={pidInvalid || undefined}
                                       inputMode="numeric"
                                       maxLength={9}
-                                      value={entry.pid ?? ''}
+                                      value={fieldInputValue('pid', pidKey)}
                                       onChange={(event) => {
                                         const value = normalizePidDigits(event.target.value).slice(
                                           0,
                                           9
                                         );
-                                        updateCheck(selectedCheck.check_index, (current) => {
-                                          const next = [...current.pids];
-                                          const idx = next.findIndex((item) => item._key === pidKey);
-                                          if (idx < 0) return current;
-                                          next[idx] = {
-                                            ...next[idx],
-                                            pid: value,
-                                            active_directory: { status: 'not_found', name: null },
-                                            lookingUp: false,
-                                            _lookedUpFor: undefined,
-                                          };
-                                          return { ...current, pids: next };
-                                        });
+                                        beginFieldDraft('pid', value, pidKey);
                                       }}
                                       onKeyDown={(event) => {
                                         if (event.key === 'Enter') {
                                           event.preventDefault();
+                                          const committed = commitFieldDraftFor('pid', pidKey);
                                           lookupPid(
                                             selectedCheck.check_index,
                                             pidKey,
-                                            event.currentTarget.value
+                                            committed
                                           );
+                                          return;
                                         }
+                                        if (event.key === 'Escape' && fieldDraftMatches('pid', pidKey)) {
+                                          event.preventDefault();
+                                          event.stopPropagation();
+                                          revertFieldDraft();
+                                        }
+                                      }}
+                                      onBlur={() => {
+                                        if (fieldDraftMatches('pid', pidKey)) revertFieldDraft();
                                       }}
                                     />
                                     <Button
@@ -1350,9 +1452,14 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                       className="shrink-0 h-[2.625rem] w-[2.625rem] border-[#B7D7ED] bg-white hover:bg-[#EDF5FB]"
                                       disabled={entry.lookingUp}
                                       aria-label={`Search Active Directory for PID on check ${selectedCheck.check_index}`}
-                                      onClick={() =>
-                                        lookupPid(selectedCheck.check_index, pidKey, entry.pid)
-                                      }
+                                      onMouseDown={(event) => {
+                                        // Keep PID focus so blur does not discard an uncommitted draft.
+                                        event.preventDefault();
+                                      }}
+                                      onClick={() => {
+                                        const committed = commitFieldDraftFor('pid', pidKey);
+                                        lookupPid(selectedCheck.check_index, pidKey, committed);
+                                      }}
                                     >
                                       {entry.lookingUp ? (
                                         <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
@@ -1376,7 +1483,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                   >
                                     {entry.lookingUp
                                       ? 'Looking up…'
-                                      : adFound
+                                      : !pidDraftDiffers && adFound
                                         ? entry.active_directory.name
                                         : '—'}
                                   </div>
