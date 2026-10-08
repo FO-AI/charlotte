@@ -26,6 +26,8 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { APIClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth/auth-context-msal';
 import {
+  checkMultiPidFlag,
+  checkNameMismatchFlag,
   checkIssueShortLabels,
   checkNeedsReview,
   checkStatus,
@@ -489,6 +491,14 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     () => (selectedCheck ? hasNonBlankBadPid(selectedCheck) : false),
     [selectedCheck]
   );
+  const selectedMultiPidFlag = useMemo(
+    () => (selectedCheck && !selectedCheck.verified ? checkMultiPidFlag(selectedCheck) : null),
+    [selectedCheck]
+  );
+  const selectedNameMismatchFlag = useMemo(
+    () => (selectedCheck && !selectedCheck.verified ? checkNameMismatchFlag(selectedCheck) : null),
+    [selectedCheck]
+  );
   const anyCheckHasBadPid = useMemo(() => checks.some((check) => hasNonBlankBadPid(check)), [checks]);
   const exportBlockedByBadPid = anyCheckHasBadPid;
   const visibleChecks = useMemo(() => {
@@ -940,6 +950,8 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const checkNumberInvalid = missingFields.includes('check number');
   const providerInvalid =
     missingFields.includes('provider') || missingFields.includes('provider length');
+  const payeeNameInvalid = Boolean(selectedNameMismatchFlag);
+  const pidSectionInvalid = Boolean(selectedMultiPidFlag);
 
   return (
     <TooltipProvider>
@@ -1196,24 +1208,32 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                         </p>
                       </div>
                       <label className="sm:col-span-2">
-                        <FieldLabel>Payee name</FieldLabel>
-                        <div className="flex items-center gap-1">
-                          <input
-                            className={FOCUS_INPUT}
-                            aria-label={`Payee name for check ${selectedCheck.check_index}`}
-                            value={selectedCheck.name ?? ''}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              updateCheck(selectedCheck.check_index, (current) => ({
-                                ...current,
-                                name: value,
-                              }));
-                            }}
-                          />
-                          <EditedMarker
-                            show={String(selectedCheck.name ?? '') !== String(originalSelected.name ?? '')}
-                            original={originalSelected.name}
-                          />
+                        <FieldLabel invalid={payeeNameInvalid}>Payee name</FieldLabel>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1">
+                            <input
+                              className={`${FOCUS_INPUT} ${payeeNameInvalid ? ERROR_INPUT : ''}`}
+                              aria-invalid={payeeNameInvalid || undefined}
+                              aria-label={`Payee name for check ${selectedCheck.check_index}`}
+                              value={selectedCheck.name ?? ''}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                updateCheck(selectedCheck.check_index, (current) => ({
+                                  ...current,
+                                  name: value,
+                                }));
+                              }}
+                            />
+                            <EditedMarker
+                              show={String(selectedCheck.name ?? '') !== String(originalSelected.name ?? '')}
+                              original={originalSelected.name}
+                            />
+                          </div>
+                          {payeeNameInvalid ? (
+                            <p className="text-xs text-red-700">
+                              {selectedNameMismatchFlag?.shortLabel} — compare payee and Active Directory names.
+                            </p>
+                          ) : null}
                         </div>
                       </label>
 
@@ -1357,13 +1377,20 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                       </label>
                     </div>
 
-                    <div className={`${SECTION_CARD} space-y-3 h-full`}>
+                    <div
+                      className={`${SECTION_CARD} space-y-3 h-full ${
+                        pidSectionInvalid ? 'border-red-300 bg-red-50/20' : ''
+                      }`}
+                    >
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <h3 className="text-base font-bold text-navy">PIDs</h3>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             Look up each PID in Active Directory
                           </p>
+                          {pidSectionInvalid ? (
+                            <p className="text-xs text-red-700 mt-1">{selectedMultiPidFlag?.message}</p>
+                          ) : null}
                         </div>
                         {checkNeedsReview(selectedCheck) || selectedCheck.verified ? (
                           <div className="flex flex-col items-end gap-1">

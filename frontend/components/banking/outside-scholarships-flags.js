@@ -25,6 +25,79 @@ export function normalizePidDigits(pid) {
   return String(pid ?? '').replace(/\D/g, '');
 }
 
+function nonBlankPidEntries(check) {
+  const pids = Array.isArray(check?.pids) ? check.pids : [];
+  return pids.filter((entry) => String(entry?.pid ?? '').trim());
+}
+
+export function hasMultipleNonBlankPids(check) {
+  return nonBlankPidEntries(check).length > 1;
+}
+
+function normalizeNameTokens(value) {
+  return String(value ?? '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function namesLikelyMatch(payeeName, activeDirectoryName) {
+  const payeeTokens = normalizeNameTokens(payeeName);
+  const adTokens = normalizeNameTokens(activeDirectoryName);
+  if (!payeeTokens.length || !adTokens.length) return true;
+
+  const payeeText = payeeTokens.join(' ');
+  const adText = adTokens.join(' ');
+  if (payeeText === adText) return true;
+
+  const payeeSet = new Set(payeeTokens);
+  const adSet = new Set(adTokens);
+  const sameTokenSet =
+    payeeSet.size === adSet.size && [...payeeSet].every((token) => adSet.has(token));
+  if (sameTokenSet) return true;
+
+  let overlap = 0;
+  for (const token of payeeSet) {
+    if (adSet.has(token)) overlap += 1;
+  }
+  const subsetMatch = overlap >= 2 && (overlap === payeeSet.size || overlap === adSet.size);
+  return subsetMatch;
+}
+
+export function hasAdPayeeNameMismatch(check) {
+  const payeeName = String(check?.name ?? '').trim();
+  if (!payeeName) return false;
+  const pids = Array.isArray(check?.pids) ? check.pids : [];
+  return pids.some((entry) => {
+    if (entry?.active_directory?.status !== 'found') return false;
+    const adName = String(entry?.active_directory?.name ?? '').trim();
+    if (!adName) return false;
+    return !namesLikelyMatch(payeeName, adName);
+  });
+}
+
+export function checkMultiPidFlag(check) {
+  if (!hasMultipleNonBlankPids(check)) return null;
+  return {
+    type: 'multi_pid',
+    shortLabel: 'Multiple PIDs',
+    message: 'This check has more than one PID and requires review before export.',
+  };
+}
+
+export function checkNameMismatchFlag(check) {
+  if (!hasAdPayeeNameMismatch(check)) return null;
+  return {
+    type: 'name_mismatch',
+    shortLabel: 'Name mismatch',
+    message: 'Payee name and Active Directory name do not match for at least one PID.',
+  };
+}
+
 /** True when a PID field has text that is not exactly nine digits (blank is OK). */
 export function isNonBlankBadPid(pid) {
   const text = String(pid ?? '').trim();
@@ -122,6 +195,8 @@ export function checkFieldFlag(check) {
 export function checkNeedsReview(check) {
   if (check?.verified) return false;
   if (checkFieldFlag(check)) return true;
+  if (checkMultiPidFlag(check)) return true;
+  if (checkNameMismatchFlag(check)) return true;
   const pids = Array.isArray(check?.pids) && check.pids.length ? check.pids : [{ pid: '' }];
   return pids.some((entry) => Boolean(pidEntryFlag(entry)));
 }
@@ -155,6 +230,12 @@ export function checkIssueShortLabels(check) {
       else push(fieldFlag.shortLabel);
     }
   }
+
+  const multiPidFlag = checkMultiPidFlag(check);
+  if (multiPidFlag) push(multiPidFlag.shortLabel);
+
+  const nameMismatchFlag = checkNameMismatchFlag(check);
+  if (nameMismatchFlag) push(nameMismatchFlag.shortLabel);
 
   const pids = Array.isArray(check.pids) && check.pids.length ? check.pids : [{ pid: '' }];
   for (const entry of pids) {
