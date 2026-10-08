@@ -9,7 +9,14 @@ const preview = JSON.parse(
 const FIXED_PID = '123456789';
 const AD_NAME = 'Example, Alex';
 
-async function stubReviewApis(page, previewBody) {
+async function stubReviewApis(page, previewBody, options = {}) {
+  const lookupByPid =
+    options.lookupByPid ||
+    ((pid) =>
+      pid === FIXED_PID
+        ? { status: 'found', name: AD_NAME }
+        : { status: 'not_found', name: null });
+
   await page.route('**/api/banking/outside-scholarships/active-directory-names', async (route) => {
     const body = route.request().postDataJSON();
     const pids = Array.isArray(body?.pids) ? body.pids : [];
@@ -19,10 +26,7 @@ async function stubReviewApis(page, previewBody) {
       body: JSON.stringify({
         pids: pids.map((pid) => ({
           pid,
-          active_directory:
-            pid === FIXED_PID
-              ? { status: 'found', name: AD_NAME }
-              : { status: 'not_found', name: null },
+          active_directory: lookupByPid(pid),
         })),
       }),
     });
@@ -193,6 +197,75 @@ test.describe('Outside scholarships review flow', () => {
     await expect(pidInput).toHaveValue('1234567');
     await expect(page.getByRole('button', { name: 'Mark verified' })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
+  });
+
+  test('multi-PID check requires review until Mark verified', async ({ page }) => {
+    const multiPidPreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          provider: 'Example Foundation',
+          pids: [
+            { pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } },
+            { pid: '987654321', active_directory: { status: 'found', name: AD_NAME } },
+          ],
+        },
+      ],
+    };
+    await stubReviewApis(page, multiPidPreview);
+    await uploadAndOpenReview(page);
+
+    await expect(page.getByText(/Multiple PIDs/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
+
+    const verifyButton = page.getByRole('button', { name: 'Mark verified' });
+    await expect(verifyButton).toBeEnabled();
+    await verifyButton.click();
+
+    await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+    await expect(page.getByText(/0 of 1 left/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
+
+    const artifactsDir = path.join(__dirname, 'artifacts');
+    fs.mkdirSync(artifactsDir, { recursive: true });
+    await page.screenshot({ path: path.join(artifactsDir, 'outside-scholarships-multi-pid.png'), fullPage: true });
+  });
+
+  test('AD/payee name mismatch blocks export until corrected', async ({ page }) => {
+    const mismatchName = 'Mismatch, Morgan';
+    const mismatchPreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          provider: 'Example Foundation',
+          pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: mismatchName } }],
+        },
+      ],
+    };
+    await stubReviewApis(page, mismatchPreview, {
+      lookupByPid: (pid) =>
+        pid === FIXED_PID
+          ? { status: 'found', name: mismatchName }
+          : { status: 'not_found', name: null },
+    });
+    await uploadAndOpenReview(page);
+
+    await expect(page.getByText(/Name mismatch/i).first()).toBeVisible();
+    const payeeInput = page.getByLabel('Payee name for check 1');
+    await expect(payeeInput).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
+
+    await payeeInput.fill('Morgan Mismatch');
+
+    await expect(page.getByText(/Name mismatch/i).first()).toBeHidden();
+    await expect(payeeInput).not.toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
+
+    const artifactsDir = path.join(__dirname, 'artifacts');
+    fs.mkdirSync(artifactsDir, { recursive: true });
+    await page.screenshot({ path: path.join(artifactsDir, 'outside-scholarships-name-mismatch-resolved.png'), fullPage: true });
   });
 
   // Provider commits on Enter only — typing a valid short name must not auto-advance mid-edit.
