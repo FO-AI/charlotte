@@ -343,10 +343,14 @@ function checksPidsWithKeys(pids) {
 
 function pageHint(check) {
   const pages = [check.front_page, check.back_page, ...(check.supporting_pages || [])].filter(
-    (page) => page != null
+    (page) => Number.isFinite(page)
   );
-  if (pages.length <= 1) return `p. ${pages[0] ?? check.front_page}`;
-  return `pp. ${pages[0]}–${pages[pages.length - 1]}`;
+  if (!pages.length) return `p. ${check.front_page ?? ''}`;
+  const first = Math.min(...pages);
+  const last = Math.max(...pages);
+  if (first === last) return `p. ${first}`;
+  // The back can be the last scanned page while the list stores it before the stubs.
+  return `pp. ${first}–${last}`;
 }
 
 function StatusListIcon({ check }) {

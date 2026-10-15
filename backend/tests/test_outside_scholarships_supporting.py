@@ -50,6 +50,22 @@ def test_grouping_keeps_a_back_that_was_scanned_after_a_supporting_page():
     ]
 
 
+def test_a_back_scanned_after_a_stub_is_still_the_check_back(client, override_auth, app):
+    response, llm = upload(
+        client,
+        app,
+        [FRONT, SUPPORTING, BACK],
+        back_pids={1001: "730000001"},
+    )
+    assert response.status_code == 200, response.text
+    check = preview_payload(response)["checks"][0]
+    assert check["front_page"] == 1
+    assert check["back_page"] == 3
+    assert check["supporting_pages"] == [2]
+    assert [entry["pid"] for entry in check["pids"]] == ["730000001"]
+    assert llm.image_counts_by_check()[1001] == 3
+
+
 def test_grouping_rejects_a_second_back():
     with pytest.raises(ValueError, match="only one back"):
         _group_pages_by_check([FRONT, BACK, BACK])
