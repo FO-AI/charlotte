@@ -211,7 +211,11 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
       }}
     >
       <DialogContent
-        className={extracting ? 'sm:max-w-2xl' : 'sm:max-w-xl'}
+        className={
+          extracting
+            ? 'min-w-0 overflow-hidden sm:max-w-2xl [&>*]:min-w-0'
+            : 'min-w-0 overflow-hidden sm:max-w-xl [&>*]:min-w-0'
+        }
         onInteractOutside={(event) => {
           if (extracting) event.preventDefault();
         }}
@@ -225,9 +229,9 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
             Upload Outside Scholarship Checks
           </DialogTitle>
           {!extracting ? (
-            <DialogDescription>
-              Upload one PDF of scanned checks. Put each check&apos;s front first, followed by
-              its back if you have it. Checks without a back are fine.
+            <DialogDescription className="text-pretty">
+              Upload one PDF. Put each check&apos;s front first, then its back if you have one, then
+              that check&apos;s letters or forms, then the next check.
             </DialogDescription>
           ) : (
             <DialogDescription className="sr-only">

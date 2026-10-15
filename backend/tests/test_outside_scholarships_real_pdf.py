@@ -29,7 +29,7 @@ _REPORTS_DIR = _BACKEND_DIR / "reports"
 _EVAL_DIR = os.getenv("OUTSIDE_SCHOLARSHIPS_EVAL_DIR")
 _LABEL = os.getenv("OUTSIDE_SCHOLARSHIPS_EVAL_LABEL", "latest")
 _BASELINE = os.getenv("OUTSIDE_SCHOLARSHIPS_EVAL_BASELINE")
-_COMPARED_FIELDS = ("pid_list", "amount", "check_number", "name", "provider", "scholarship_name")
+_COMPARED_FIELDS = ("pid_list", "amount", "check_number", "name", "provider", "scholarship_name", "aid_term")
 # conftest.py fills unset Azure settings with this placeholder host so the app can import in CI.
 _CI_PLACEHOLDER_HOST = "ci.invalid"
 
@@ -84,6 +84,8 @@ def test_real_pdf_extraction_report():
     report_path = _REPORTS_DIR / f"outside_scholarships_eval_{_LABEL}.json"
     report_path.write_text(json.dumps({"label": _LABEL, "run_seconds": run_seconds, "checks": checks}, indent=2))
     print(f"\n{report_path.name}: checks={len(checks)} run_seconds={run_seconds}")
+    if any("Supporting Documentation" in path.name for path in Path(os.path.expanduser(_EVAL_DIR)).glob("*.pdf")):
+        _assert_supporting_document_anchors(checks)
 
     if not _BASELINE:
         return
@@ -93,3 +95,69 @@ def test_real_pdf_extraction_report():
     comparison_path.write_text(json.dumps(comparison, indent=2))
     counts = {field: (result["same"], result["different"]) for field, result in comparison["fields"].items()}
     print(f"{comparison_path.name}: check_count={comparison['check_count']} (same, different)={counts}")
+
+
+def _amount(check):
+    return float(str(check.get("amount")).replace(",", "").replace("$", ""))
+
+
+def _blob(check):
+    return " ".join(
+        str(check.get(field) or "")
+        for field in ("name", "provider", "scholarship_name", "check_number")
+    ).lower()
+
+
+def _one(checks, needle):
+    matches = [check for check in checks if needle in _blob(check)]
+    assert len(matches) == 1, f"expected one check matching {needle!r}, found {len(matches)}"
+    return matches[0]
+
+
+def _assert_supporting_document_anchors(checks):
+    """Derek's combined scan. Amount stays on the check. Term and scholarship may come from a page.
+
+    Checked against the pages themselves: the Winnebago voucher memo is "Fall 2026", and the
+    Thompson letter names the Riddick scholarship and applies the award to "2026-2027", which
+    is not a term selection.
+    """
+    failures = []
+
+    def expect(condition, message):
+        if not condition:
+            failures.append(message)
+
+    reidsville = _one(checks, "delapp")
+    expect(abs(_amount(reidsville) - 750) < 0.01, f"Reidsville amount {_amount(reidsville)}")
+    expect(reidsville.get("aid_term") == "F", f"Reidsville term {reidsville.get('aid_term')}")
+
+    saudi = [check for check in checks if "saudi" in _blob(check)]
+    expect(bool(saudi), "expected the Saudi checks")
+    for check in saudi:
+        expect(not check.get("supporting_pages"), f"Saudi supporting pages {check.get('supporting_pages')}")
+        expect(check.get("aid_term") == "F", f"Saudi term {check.get('aid_term')} for {check.get('check_number')}")
+        expect(bool(check.get("amount")), f"Saudi amount missing for {check.get('check_number')}")
+
+    kendall_matches = [check for check in checks if "kendall" in (check.get("name") or "").lower()]
+    expect(len(kendall_matches) == 1, f"expected one Kendall check, found {len(kendall_matches)}")
+    if kendall_matches:
+        kendall = kendall_matches[0]
+        expect("wells fargo" in (kendall.get("scholarship_name") or "").lower(), f"Kendall scholarship {kendall.get('scholarship_name')}")
+        expect(abs(_amount(kendall) - 1000) < 0.01, f"Kendall amount {_amount(kendall)}")
+
+    sarah = _one(checks, "bunyan")
+    expect(bool((sarah.get("name") or "").strip()), "Sarah name is blank")
+    expect(abs(_amount(sarah) - 2500) < 0.01, f"Sarah amount {_amount(sarah)}")
+    # Her UNC form prints every term option and none of the boxes are marked.
+    expect(sarah.get("aid_term") is None, f"Sarah term {sarah.get('aid_term')}")
+
+    winnebago = _one(checks, "winnebago")
+    expect(abs(_amount(winnebago) - 5000) < 0.01, f"Winnebago amount {_amount(winnebago)}")
+    expect(winnebago.get("aid_term") == "F", f"Winnebago term {winnebago.get('aid_term')}")
+
+    thompson = _one(checks, "thompson")
+    expect(abs(_amount(thompson) - 4000) < 0.01, f"Thompson amount {_amount(thompson)}")
+    expect("riddick" in (thompson.get("scholarship_name") or "").lower(), f"Thompson scholarship {thompson.get('scholarship_name')}")
+    expect(thompson.get("aid_term") is None, f"Thompson term {thompson.get('aid_term')}")
+
+    assert not failures, "\n".join(failures)

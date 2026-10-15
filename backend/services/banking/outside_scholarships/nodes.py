@@ -12,19 +12,20 @@ from langgraph.types import RunnableConfig, Send
 
 from config import get_logger
 from prompts.outside_scholarship import (
-    CHECK_IMAGES_FRONT_AND_BACK,
-    CHECK_IMAGES_FRONT_ONLY,
     CLASSIFY_CHECK_SIDES_PROMPT,
     EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT,
+    describe_check_images,
 )
 from services.banking.outside_scholarships.state import CheckPair, OrchestratorState, WorkerState
+from services.data_loaders.outside_scholarships_json_to_excel import ALLOWED_AID_TERMS
 
 logger = get_logger(__name__)
 _MODEL = "gpt-5-chat"
 
 _FRONT_SIDE = "front"
 _BACK_SIDE = "back"
-_PAGE_SIDES = {_FRONT_SIDE, _BACK_SIDE}
+_SUPPORTING_SIDE = "supporting"
+_PAGE_SIDES = {_FRONT_SIDE, _BACK_SIDE, _SUPPORTING_SIDE}
 _PAGE_RENDER_DPI = 200
 # Preview JPEGs for the review UI: legible on screen, smaller than extraction PNGs.
 _PREVIEW_JPEG_DPI = 150
@@ -150,6 +151,17 @@ def _pid_candidates(fields: Dict[str, Any]) -> Sequence[Any]:
     return [raw_pids]
 
 
+def _normalize_aid_term(value: Any) -> Optional[str]:
+    """Keep only the upload codes. Any other wording from the model is dropped."""
+    text = _normalize_text(value)
+    if text is None:
+        return None
+    normalized = text.strip().upper()
+    if normalized in ALLOWED_AID_TERMS:
+        return normalized
+    return None
+
+
 def _normalize_check_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "pid_list": _dedupe_pids(_pid_candidates(fields)),
@@ -158,6 +170,7 @@ def _normalize_check_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
         "name": _normalize_text(fields.get("name")),
         "provider": _normalize_text(fields.get("provider")),
         "scholarship_name": _normalize_text(fields.get("scholarship_name")),
+        "aid_term": _normalize_aid_term(fields.get("aid_term")),
     }
 
 
@@ -238,7 +251,7 @@ def _classify_page_sides(
     llm: Any,
     max_concurrency: Optional[int],
 ) -> List[str]:
-    """Label every page of the PDF as a check front or back, in page order.
+    """Label every page of the PDF as a check front, check back, or supporting page, in page order.
 
     Batches are independent, so each is sent as soon as its thumbnails render, while earlier
     batches are still waiting on the model.
@@ -258,30 +271,47 @@ def _classify_page_sides(
         return [side for batch in batches for side in batch.result()]
 
 
-def _group_pages_by_check(sides: Sequence[str]) -> List[Tuple[int, Optional[int]]]:
-    """Group 0-based page indexes into (front, back or None) per check.
+def _group_pages_by_check(sides: Sequence[str]) -> List[Dict[str, Any]]:
+    """Group 0-based page indexes into one check: front, optional back, then supporting pages.
 
-    Every check starts with its front; a back belongs to the front directly before it.
+    A back belongs to the check in progress, including when a stub was scanned before the reverse.
+    Supporting pages follow that check until the next front. A supporting page or a back before the
+    first front, or a second back for the same check, is an upload error.
     """
-    checks: List[Tuple[int, Optional[int]]] = []
+    checks: List[Dict[str, Any]] = []
     for page_index, side in enumerate(sides):
+        page_number = page_index + 1
         if side == _FRONT_SIDE:
-            checks.append((page_index, None))
+            checks.append({"front": page_index, "back": None, "supporting": []})
             continue
-        if not checks or checks[-1][1] is not None:
+        if not checks:
             raise ValueError(
-                f"Page {page_index + 1} looks like the back of a check, but there is no check front "
-                "right before it. Put each check's front first, followed by its back, and upload again."
+                f"Page {page_number} is not a check front, and there is no check before it. "
+                "Put each check's front first, then its back if you have one, then that check's "
+                "letters or forms, and upload again."
             )
-        checks[-1] = (checks[-1][0], page_index)
+        current = checks[-1]
+        if side == _BACK_SIDE:
+            if current["back"] is not None:
+                raise ValueError(
+                    f"Page {page_number} looks like another back for the check that starts on "
+                    f"page {current['front'] + 1}. Each check can have only one back."
+                )
+            current["back"] = page_index
+            continue
+        if side == _SUPPORTING_SIDE:
+            current["supporting"].append(page_index)
+            continue
+        raise ValueError(f"Page {page_number} has an unknown side {side!r}.")
     return checks
 
 
 def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[str, Any]:
     """Read PDF bytes/folder inputs, detect each page's side, and group pages per check.
 
-    Each check is its front page, followed by its back when one was scanned. Full-resolution
-    images are rendered later by each check's worker, so checks start without waiting on them.
+    Each check is its front page, then its back when one was scanned, then that check's supporting
+    pages. Full-resolution images are rendered later by each check's worker, so checks start
+    without waiting on them.
     """
     pdf_bytes_list: List[bytes] = list(state.get("pdf_files_bytes") or [])
 
@@ -314,32 +344,40 @@ def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[st
                 ",".join(page_sides),
             )
 
-            for front_page_idx, back_page_idx in _group_pages_by_check(page_sides):
+            for grouped in _group_pages_by_check(page_sides):
+                front_page_idx = grouped["front"]
+                back_page_idx = grouped["back"]
+                supporting_indexes = grouped["supporting"]
+                # Front, then the back, then supporting pages. A scan can place the back after a stub.
+                ordered_indexes = [front_page_idx]
+                if back_page_idx is not None:
+                    ordered_indexes.append(back_page_idx)
+                ordered_indexes.extend(supporting_indexes)
                 with PYMUPDF_LOCK:
                     pair_document = fitz.open()
-                    pair_document.insert_pdf(
-                        document,
-                        from_page=front_page_idx,
-                        to_page=front_page_idx if back_page_idx is None else back_page_idx,
-                    )
+                    for source_index in ordered_indexes:
+                        pair_document.insert_pdf(document, from_page=source_index, to_page=source_index)
                     pair_pdf_bytes = pair_document.tobytes()
                     pair_document.close()
 
                 front_page = front_page_idx + 1
                 back_page = None if back_page_idx is None else back_page_idx + 1
+                supporting_pages = [index + 1 for index in supporting_indexes]
                 paired_checks.append(
                     {
                         "check_index": check_index,
                         "pair_pdf_bytes": pair_pdf_bytes,
                         "front_page": front_page,
                         "back_page": back_page,
+                        "supporting_pages": supporting_pages,
                     }
                 )
                 logger.info(
-                    "outside_scholarships.pairing: check=%s front_page=%s back_page=%s",
+                    "outside_scholarships.pairing: check=%s front_page=%s back_page=%s supporting_pages=%s",
                     check_index,
                     front_page,
                     back_page,
+                    supporting_pages,
                 )
                 check_index += 1
         finally:
@@ -360,24 +398,39 @@ def dispatch(state: OrchestratorState) -> List[Send]:
                 "pair_pdf_bytes": pair["pair_pdf_bytes"],
                 "front_page": pair["front_page"],
                 "back_page": pair.get("back_page"),
+                "supporting_pages": list(pair.get("supporting_pages") or []),
             },
         )
         for pair in state.get("check_pairs", [])
     ]
 
 
-def _render_check_images(pair_pdf_bytes: bytes) -> Tuple[bytes, Optional[bytes], str, Optional[str]]:
-    """PNG bytes for extraction plus JPEG data URLs for the review UI (one open, one lock)."""
+def _render_check_images(
+    pair_pdf_bytes: bytes,
+    has_back: bool,
+) -> Tuple[bytes, Optional[bytes], List[bytes], str, Optional[str], List[str]]:
+    """PNG bytes for extraction plus JPEG data URLs for the review UI (one open, one lock).
+
+    Page 0 is the front. The back is page 1 only when this check has one. Later pages are
+    supporting documents, including when there is no back.
+    """
     with PYMUPDF_LOCK, fitz.open(stream=pair_pdf_bytes, filetype="pdf") as pair_document:
         front_image = _render_page_png(pair_document, 0, _PAGE_RENDER_DPI)
-        back_image = _render_page_png(pair_document, 1, _PAGE_RENDER_DPI) if pair_document.page_count > 1 else None
+        back_image = _render_page_png(pair_document, 1, _PAGE_RENDER_DPI) if has_back else None
+        supporting_start = 2 if has_back else 1
+        supporting_images = [
+            _render_page_png(pair_document, page_index, _PAGE_RENDER_DPI)
+            for page_index in range(supporting_start, pair_document.page_count)
+        ]
         front_preview = _render_page_jpeg_data_url(pair_document, 0, _PREVIEW_JPEG_DPI)
         back_preview = (
-            _render_page_jpeg_data_url(pair_document, 1, _PREVIEW_JPEG_DPI)
-            if pair_document.page_count > 1
-            else None
+            _render_page_jpeg_data_url(pair_document, 1, _PREVIEW_JPEG_DPI) if has_back else None
         )
-    return front_image, back_image, front_preview, back_preview
+        supporting_previews = [
+            _render_page_jpeg_data_url(pair_document, page_index, _PREVIEW_JPEG_DPI)
+            for page_index in range(supporting_start, pair_document.page_count)
+        ]
+    return front_image, back_image, supporting_images, front_preview, back_preview, supporting_previews
 
 
 def _parse_check_fields(reply: str, check_index: Optional[int]) -> Dict[str, Any]:
@@ -395,30 +448,42 @@ def _parse_check_fields(reply: str, check_index: Optional[int]) -> Dict[str, Any
     return fields
 
 
+def _labeled_image(label: str, png_bytes: bytes) -> List[Dict[str, Any]]:
+    return [{"type": "text", "text": label}, _png_image_part(png_bytes)]
+
+
 def _extract_check_fields(
     check_index: Optional[int],
     front_image: bytes,
     back_image: Optional[bytes],
+    supporting_images: Sequence[bytes],
     llm: Any,
 ) -> Dict[str, Any]:
-    """Read one check's fields from its front (and back, if scanned) with a single vision call."""
-    image_parts = [_png_image_part(front_image)]
-    check_images_description = CHECK_IMAGES_FRONT_ONLY
+    """Read one check, with its supporting pages, in a single vision call."""
+    content: List[Dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT.replace(
+                "{check_images_description}",
+                describe_check_images(back_image is not None, len(supporting_images)),
+            ),
+        },
+        *_labeled_image("Check front", front_image),
+    ]
     if back_image:
-        image_parts.append(_png_image_part(back_image))
-        check_images_description = CHECK_IMAGES_FRONT_AND_BACK
+        content.extend(_labeled_image("Check back", back_image))
+    for index, supporting_image in enumerate(supporting_images, start=1):
+        content.extend(_labeled_image(f"Supporting page {index}", supporting_image))
 
-    prompt = EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT.replace("{check_images_description}", check_images_description)
-
-    logger.info("outside_scholarships.extract: check=%s starting has_back=%s", check_index, back_image is not None)
+    logger.info(
+        "outside_scholarships.extract: check=%s starting has_back=%s supporting_pages=%s",
+        check_index,
+        back_image is not None,
+        len(supporting_images),
+    )
     response = llm.chat.completions.create(
         model=_MODEL,
-        messages=[
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": prompt}, *image_parts],
-            }
-        ],
+        messages=[{"role": "user", "content": content}],
         response_format={"type": "json_object"},
     )
 
@@ -445,17 +510,33 @@ def process_check_node(state: WorkerState, config: RunnableConfig) -> Dict[str, 
     check_index = state.get("check_index")
     front_page = state.get("front_page")
     back_page = state.get("back_page")
+    supporting_pages = list(state.get("supporting_pages") or [])
     pair_pdf_bytes = state["pair_pdf_bytes"]
-    front_image, back_image, front_preview, back_preview = _render_check_images(pair_pdf_bytes)
-    check_fields = _extract_check_fields(check_index, front_image, back_image, config["configurable"]["llm"])
+    (
+        front_image,
+        back_image,
+        supporting_images,
+        front_preview,
+        back_preview,
+        supporting_previews,
+    ) = _render_check_images(pair_pdf_bytes, back_page is not None)
+    check_fields = _extract_check_fields(
+        check_index,
+        front_image,
+        back_image,
+        supporting_images,
+        config["configurable"]["llm"],
+    )
     return {
         "check_results": [
             {
                 **check_fields,
                 "front_page": front_page,
                 "back_page": back_page,
+                "supporting_pages": supporting_pages,
                 "front_image": front_preview,
                 "back_image": back_preview,
+                "supporting_images": supporting_previews,
                 "metadata": {"check_index": check_index},
             }
         ]

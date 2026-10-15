@@ -24,6 +24,7 @@ from services.banking.outside_scholarships.nodes import PYMUPDF_LOCK
 
 FRONT = "front"
 BACK = "back"
+SUPPORTING = "supporting"
 ROUTE = "/api/banking/outside-scholarships"
 EXPORT_ROUTE = "/api/banking/outside-scholarships/export"
 LOOKUP_ROUTE = "/api/banking/outside-scholarships/active-directory-names"
@@ -52,31 +53,39 @@ def check_amount(check_number):
 
 @dataclass(frozen=True)
 class ScriptedPage:
-    """What one page of a generated PDF shows. `pids` is None on a front."""
+    """What one page of a generated PDF shows. `pids` is None on a front or supporting page."""
 
     page_number: int
     side: str
     check_number: int
-    pids: Optional[List[str]]
+    pids: Optional[List[str]] = None
+    scholarship_name: Optional[str] = None
+    student_name: Optional[str] = None
+    aid_term: Optional[str] = None
+    supporting_amount: Optional[str] = None
+    supporting_pid: Optional[str] = None
 
 
-def scripted_pages(sides, back_pids=None):
-    """One page per side. A back belongs to the check whose front comes before it.
+def scripted_pages(sides, back_pids=None, supporting_by_page=None):
+    """One page per side. A back or supporting page belongs to the check whose front comes before it.
 
     `back_pids` maps a check number to the PID, or list of raw PID strings, written on its
-    back; checks it does not name get `default_pid`.
+    back; checks it does not name get `default_pid`. `supporting_by_page` maps a 1-based page
+    number to fields the fake reads from that supporting page.
     """
     back_pids = back_pids or {}
+    supporting_by_page = supporting_by_page or {}
     pages = []
     check_number = FIRST_CHECK_NUMBER - 1
     for page_number, side in enumerate(sides, start=1):
         pids = None
         if side == FRONT:
             check_number += 1
-        else:
+        elif side == BACK:
             written = back_pids.get(check_number, default_pid(check_number))
             pids = [written] if isinstance(written, str) else list(written)
-        pages.append(ScriptedPage(page_number, side, check_number, pids))
+        extra = supporting_by_page.get(page_number, {})
+        pages.append(ScriptedPage(page_number, side, check_number, pids, **extra))
     return pages
 
 
@@ -92,6 +101,18 @@ def build_pdf(pages):
         if scripted.side == FRONT:
             page.insert_text((72, 72), f"Check No: {scripted.check_number}")
             page.insert_text((72, 100), f"Amount: ${check_amount(scripted.check_number)}")
+        elif scripted.side == SUPPORTING:
+            page.insert_text((72, 72), "Supporting document")
+            if scripted.scholarship_name:
+                page.insert_text((72, 100), scripted.scholarship_name)
+            if scripted.student_name:
+                page.insert_text((72, 128), scripted.student_name)
+            if scripted.supporting_amount:
+                page.insert_text((72, 156), f"Amount: ${scripted.supporting_amount}")
+            if scripted.supporting_pid:
+                page.insert_text((72, 184), f"PID: {scripted.supporting_pid}")
+            page.insert_text((72, 212), "Fall Spring Summer Session 1 Summer Session 2")
+            page.insert_text((72, 240), "if not indicated, we will split evenly")
         else:
             page.insert_text((72, 72), f"PID: {', '.join(scripted.pids)}")
     return document.tobytes()
@@ -134,8 +155,10 @@ class FakeLLM:
     scripted sides (or `classify_reply(pages)`).
 
     Extraction: the fake finds each image's page from its marker colour, fails the call
-    unless the images are one check's front followed by, at most, the back right after it,
-    and replies with that check's fields (or `extraction_reply(check_number, fields)`).
+    unless the images are one check's front, then at most the back right after it, then that
+    check's supporting pages in order, and replies with that check's fields (or
+    `extraction_reply(check_number, fields)`). Amount, check number, and PIDs come from the
+    check. Scholarship name, student name, and term come from supporting pages when scripted.
     Workers run concurrently, so what each check received is keyed by check number.
 
     `classification_delay(first_page)`, `classification_barrier` and
@@ -176,7 +199,11 @@ class FakeLLM:
 
     def _create(self, model, messages, response_format):
         content = messages[0]["content"]
-        page_labels = [part["text"] for part in content[1:] if part["type"] == "text"]
+        page_labels = [
+            part["text"]
+            for part in content[1:]
+            if part["type"] == "text" and str(part["text"]).startswith("Page ")
+        ]
         if page_labels:
             return self._classify([int(label.removeprefix("Page ")) for label in page_labels])
         return self._extract([part for part in content if part["type"] == "image_url"])
@@ -192,13 +219,27 @@ class FakeLLM:
 
     def _extract(self, image_parts):
         images = [base64.b64decode(part["image_url"]["url"].split(",", 1)[1]) for part in image_parts]
-        front, *backs = [self.pages[_page_index_from_png(image)] for image in images]
+        front, *rest = [self.pages[_page_index_from_png(image)] for image in images]
         assert front.side == FRONT, f"extraction started with page {front.page_number}, a {front.side}"
-        assert len(backs) <= 1, f"check {front.check_number} was sent {len(images)} images"
-        for back in backs:
-            assert (back.side, back.page_number) == (BACK, front.page_number + 1), (
+        backs = []
+        if rest and rest[0].side == BACK:
+            back = rest[0]
+            assert back.check_number == front.check_number, (
                 f"check {front.check_number} was sent page {back.page_number} as its back"
             )
+            backs.append(back)
+            rest = rest[1:]
+        supporting = []
+        last_supporting_page = 0
+        for page in rest:
+            assert page.side == SUPPORTING and page.check_number == front.check_number, (
+                f"check {front.check_number} was sent page {page.page_number}, a {page.side}"
+            )
+            assert page.page_number > last_supporting_page, (
+                f"check {front.check_number} supporting pages were sent out of order"
+            )
+            supporting.append(page)
+            last_supporting_page = page.page_number
 
         with self._lock:
             assert front.check_number not in self.image_sizes_by_check, f"check {front.check_number} extracted twice"
@@ -207,13 +248,24 @@ class FakeLLM:
             time.sleep(self.extraction_delay(front.check_number))
 
         check_number = front.check_number
+        scholarship_name = f"Scholarship {check_number}"
+        student_name = None
+        aid_term = None
+        for page in supporting:
+            if page.scholarship_name:
+                scholarship_name = page.scholarship_name
+            if page.student_name:
+                student_name = page.student_name
+            if page.aid_term:
+                aid_term = page.aid_term
         fields = {
             "pid_list": backs[0].pids if backs else [],
             "amount": check_amount(check_number),
             "check_number": str(check_number),
-            "name": f"Payee {check_number}",
+            "name": student_name or f"Payee {check_number}",
             "provider": f"Provider {check_number}",
-            "scholarship_name": f"Scholarship {check_number}",
+            "scholarship_name": scholarship_name,
+            "aid_term": aid_term,
         }
         return self._reply(self.extraction_reply(check_number, fields))
 
@@ -265,7 +317,17 @@ class FakeGraph:
         return httpx.Response(200, json={"value": users})
 
 
-def upload(client, app, sides, back_pids=None, graph=None, aid_term="F", aid_year=None, **llm_options):
+def upload(
+    client,
+    app,
+    sides,
+    back_pids=None,
+    graph=None,
+    aid_term="F",
+    aid_year=None,
+    supporting_by_page=None,
+    **llm_options,
+):
     """POST a generated check PDF through the real route with the LLM and Graph faked.
 
     The fake Azure client has an LLM and nothing else, so no Document Intelligence is
@@ -275,7 +337,7 @@ def upload(client, app, sides, back_pids=None, graph=None, aid_term="F", aid_yea
     from api.dependencies import get_azure_client, get_graph_user_directory
     from services.azure_services import GraphUserDirectory
 
-    pages = scripted_pages(sides, back_pids)
+    pages = scripted_pages(sides, back_pids, supporting_by_page)
     llm = FakeLLM(pages, **llm_options)
     app.dependency_overrides[get_azure_client] = lambda: SimpleNamespace(llm=llm)
     if graph is not None:
@@ -346,6 +408,8 @@ def export_payload_from_preview(preview, verified_indexes=None):
             "scholarship_name": check.get("scholarship_name"),
             "pids": list(check.get("pids") or []),
         }
+        if check.get("aid_term"):
+            extracted_fields["aid_term"] = check.get("aid_term")
         checks.append(
             {
                 "check_index": index,
