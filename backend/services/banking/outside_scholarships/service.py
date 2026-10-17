@@ -210,6 +210,14 @@ class OutsideScholarshipService:
             if not isinstance(check, dict):
                 continue
             pid_list = check.get("pid_list") if isinstance(check.get("pid_list"), list) else []
+            pid_amounts = check.get("pid_amounts") if isinstance(check.get("pid_amounts"), list) else []
+            amount_by_pid = {}
+            for entry in pid_amounts:
+                if not isinstance(entry, dict):
+                    continue
+                pid = str(entry.get("pid") or "").strip()
+                if pid:
+                    amount_by_pid[pid] = entry.get("amount")
             pids = []
             seen_pids = set()
             for pid in pid_list:
@@ -238,6 +246,7 @@ class OutsideScholarshipService:
                     pids.append(
                         {
                             "pid": pid_digits,
+                            "amount": amount_by_pid.get(pid_digits),
                             "active_directory": ad_by_pid.get(
                                 pid_digits, {"status": "not_found", "name": None}
                             ),

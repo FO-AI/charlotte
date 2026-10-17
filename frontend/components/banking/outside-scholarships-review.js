@@ -27,6 +27,8 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { APIClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth/auth-context-msal';
 import {
+  checkAmountSplitFlag,
+  checkAmountSplitStatus,
   checkMultiPidFlag,
   checkNameMismatchFlag,
   checkSupportingLooksLikeCheckFlag,
@@ -35,6 +37,7 @@ import {
   checkNeedsReview,
   checkStatus,
   hasNonBlankBadPid,
+  hasMultipleNonBlankPids,
   isWellFormedPid,
   missingRequiredFields,
   normalizePidDigits,
@@ -365,6 +368,10 @@ function pageHint(check) {
   return `pp. ${first}–${last}`;
 }
 
+function fullCheckAmountMessage(check) {
+  return `Excel will use $${String(check?.amount || '0')} on every PID row`;
+}
+
 function StatusListIcon({ check }) {
   const status = checkStatus(check);
   if (status.key === 'needs_review') {
@@ -478,7 +485,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const [liveMessage, setLiveMessage] = useState('');
   const [dirty, setDirty] = useState(false);
   // Zoopable field edits stay local until Enter so Needs review / auto-advance do not fire mid-type.
-  // Shape: { checkIndex, field: 'amount'|'check_number'|'provider'|'pid', pidKey?, value }
+  // Shape: { checkIndex, field: 'amount'|'check_number'|'provider'|'pid'|'pid_amount', pidKey?, value }
   const [fieldDraft, setFieldDraft] = useState(null);
   const lookupSeqRef = useRef({});
   const rowRefs = useRef({});
@@ -496,6 +503,10 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
       const entry = (check.pids || []).find((item) => item._key === pidKey);
       return String(entry?.pid ?? '');
     }
+    if (field === 'pid_amount') {
+      const entry = (check.pids || []).find((item) => item._key === pidKey);
+      return String(entry?.amount ?? '');
+    }
     if (field === 'amount') return String(check.amount ?? '');
     if (field === 'check_number') return String(check.check_number ?? '');
     if (field === 'provider') return String(check.provider ?? '');
@@ -507,7 +518,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
       if (!fieldDraft || fieldDraft.checkIndex !== selectedCheckId || fieldDraft.field !== field) {
         return false;
       }
-      if (field === 'pid') return fieldDraft.pidKey === pidKey;
+      if (field === 'pid' || field === 'pid_amount') return fieldDraft.pidKey === pidKey;
       return true;
     },
     [fieldDraft, selectedCheckId]
@@ -533,6 +544,18 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   );
   const selectedMultiPidFlag = useMemo(
     () => (selectedCheck && !selectedCheck.verified ? checkMultiPidFlag(selectedCheck) : null),
+    [selectedCheck]
+  );
+  const selectedAmountSplitFlag = useMemo(
+    () => (selectedCheck && !selectedCheck.verified ? checkAmountSplitFlag(selectedCheck) : null),
+    [selectedCheck]
+  );
+  const selectedAmountSplitStatus = useMemo(
+    () => (selectedCheck ? checkAmountSplitStatus(selectedCheck) : null),
+    [selectedCheck]
+  );
+  const selectedHasMultiplePids = useMemo(
+    () => (selectedCheck ? hasMultipleNonBlankPids(selectedCheck) : false),
     [selectedCheck]
   );
   const selectedNameMismatchFlag = useMemo(
@@ -683,7 +706,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
         checkIndex: selectedCheck.check_index,
         field,
         value,
-        ...(field === 'pid' ? { pidKey } : {}),
+        ...(field === 'pid' || field === 'pid_amount' ? { pidKey } : {}),
       });
     },
     [selectedCheck]
@@ -697,7 +720,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
         fieldDraft &&
         fieldDraft.checkIndex === selectedCheck.check_index &&
         fieldDraft.field === field &&
-        (field !== 'pid' || fieldDraft.pidKey === pidKey);
+        ((field !== 'pid' && field !== 'pid_amount') || fieldDraft.pidKey === pidKey);
 
       if (!matches) {
         return committedFieldValue(selectedCheck, field, pidKey);
@@ -736,6 +759,15 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             return { ...current, pids: next };
           });
         }
+      } else if (field === 'pid_amount') {
+        committed = committed.trim();
+        updateCheck(selectedCheck.check_index, (current) => {
+          const next = [...(current.pids || [])];
+          const idx = next.findIndex((item) => item._key === pidKey);
+          if (idx < 0) return current;
+          next[idx] = { ...next[idx], amount: committed };
+          return { ...current, pids: next };
+        });
       }
       setFieldDraft(null);
       return committed;
@@ -936,6 +968,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             aid_term: original.aid_term,
             pids: (original.pids || []).map((entry) => ({
               pid: entry.pid,
+              amount: entry.amount,
               active_directory: entry.active_directory,
             })),
           },
@@ -948,6 +981,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             aid_term: check.aid_term,
             pids: (check.pids || []).map((entry) => ({
               pid: entry.pid,
+              amount: entry.amount,
               active_directory: entry.active_directory,
             })),
           },
@@ -1013,7 +1047,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const providerInvalid =
     missingFields.includes('provider') || missingFields.includes('provider length');
   const payeeNameInvalid = Boolean(selectedNameMismatchFlag);
-  const pidSectionInvalid = Boolean(selectedMultiPidFlag);
+  const pidSectionInvalid = Boolean(selectedMultiPidFlag || selectedAmountSplitFlag);
 
   return (
     <TooltipProvider>
@@ -1537,7 +1571,30 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                             Look up each PID in Active Directory
                           </p>
                           {pidSectionInvalid ? (
-                            <p className="text-xs text-red-700 mt-1">{selectedMultiPidFlag?.message}</p>
+                            <div className="mt-1 space-y-1">
+                              {selectedMultiPidFlag ? (
+                                <p className="text-xs text-red-700">{selectedMultiPidFlag.message}</p>
+                              ) : null}
+                              {selectedAmountSplitFlag ? (
+                                <p className="text-xs text-red-700">{selectedAmountSplitFlag.message}</p>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {selectedHasMultiplePids ? (
+                            <p
+                              className={`mt-1 text-xs ${
+                                selectedAmountSplitStatus?.complete && selectedAmountSplitStatus?.matches
+                                  ? 'text-emerald-700'
+                                  : 'text-red-700'
+                              }`}
+                            >
+                              Check total: ${String(selectedCheck.amount || '0')}.{' '}
+                              {selectedAmountSplitStatus?.complete && selectedAmountSplitStatus?.matches
+                                ? 'Split matches check total.'
+                                : selectedAmountSplitStatus?.complete
+                                  ? `Split does not match check total. ${fullCheckAmountMessage(selectedCheck)} until the split matches.`
+                                  : `Amounts not split. ${fullCheckAmountMessage(selectedCheck)} until the split matches.`}
+                            </p>
                           ) : null}
                         </div>
                         {checkNeedsReview(selectedCheck) || selectedCheck.verified ? (
@@ -1563,6 +1620,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                           const flag = pidEntryFlag(entry);
                           const pidInvalid = Boolean(flag) && flag.type !== 'ad_looking_up';
                           const extractedPid = (originalSelected.pids || [])[pidIndex]?.pid;
+                          const extractedAmount = (originalSelected.pids || [])[pidIndex]?.amount;
                           const pidKey = entry._key;
                           const adFound = entry.active_directory?.status === 'found';
                           // While rewriting a PID, hide the prior AD match until Enter/Search commits.
@@ -1648,6 +1706,49 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                     />
                                   </div>
                                 </div>
+                                {selectedHasMultiplePids ? (
+                                  <div>
+                                    <FieldLabel invalid={Boolean(selectedAmountSplitFlag)}>
+                                      Amount
+                                    </FieldLabel>
+                                    <div className="flex items-center gap-1.5">
+                                      <input
+                                        className={`${FOCUS_INPUT} ${
+                                          selectedAmountSplitFlag ? ERROR_INPUT : ''
+                                        }`}
+                                        aria-invalid={selectedAmountSplitFlag ? true : undefined}
+                                        aria-label={`Amount for PID ${pidIndex + 1} on check ${selectedCheck.check_index}`}
+                                        inputMode="decimal"
+                                        value={fieldInputValue('pid_amount', pidKey)}
+                                        onChange={(event) => {
+                                          beginFieldDraft('pid_amount', event.target.value, pidKey);
+                                        }}
+                                        onKeyDown={(event) => {
+                                          if (event.key === 'Enter') {
+                                            event.preventDefault();
+                                            commitFieldDraftFor('pid_amount', pidKey);
+                                            return;
+                                          }
+                                          if (
+                                            event.key === 'Escape' &&
+                                            fieldDraftMatches('pid_amount', pidKey)
+                                          ) {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            revertFieldDraft();
+                                          }
+                                        }}
+                                        onBlur={() => {
+                                          if (fieldDraftMatches('pid_amount', pidKey)) revertFieldDraft();
+                                        }}
+                                      />
+                                      <EditedMarker
+                                        show={String(entry.amount ?? '') !== String(extractedAmount ?? '')}
+                                        original={extractedAmount}
+                                      />
+                                    </div>
+                                  </div>
+                                ) : null}
                                 <div>
                                   <FieldLabel>Active Directory name</FieldLabel>
                                   <div

@@ -103,7 +103,7 @@ def test_excel_emits_one_row_when_extracted_has_pid_and_approval_number():
     assert rows[0][7] == "Cabinetworks Group Michigan, LLC"
 
 
-def test_excel_keeps_multiple_nine_digit_pids_and_blank_when_none():
+def test_excel_keeps_multiple_nine_digit_pids_and_full_amount_when_split_missing():
     loader = OutsideScholarshipsDataLoader(aid_year="2027", aid_term="F")
     rows = loader._expand_reviewed_rows(
         [

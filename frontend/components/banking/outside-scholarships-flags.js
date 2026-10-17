@@ -186,6 +186,50 @@ function isValidAmount(value) {
   return /^\d+(\.\d{1,2})?$/.test(cleaned);
 }
 
+function parseAmount(value) {
+  if (!isValidAmount(value)) return null;
+  const cleaned = String(value ?? '').replace(/\$/g, '').replace(/,/g, '').replace(/\s/g, '');
+  const amount = Number.parseFloat(cleaned);
+  return Number.isFinite(amount) ? amount : null;
+}
+
+export function checkAmountSplitStatus(check) {
+  const entries = nonBlankPidEntries(check);
+  if (entries.length <= 1) {
+    return { applies: false, complete: true, matches: true, total: parseAmount(check?.amount), splitTotal: null };
+  }
+
+  const total = parseAmount(check?.amount);
+  if (total === null) {
+    return { applies: true, complete: false, matches: false, total: null, splitTotal: null };
+  }
+
+  let splitTotal = 0;
+  for (const entry of entries) {
+    const amount = parseAmount(entry?.amount);
+    if (amount === null) {
+      return { applies: true, complete: false, matches: false, total, splitTotal: null };
+    }
+    splitTotal += amount;
+  }
+
+  const roundedSplit = Math.round(splitTotal * 100) / 100;
+  const roundedTotal = Math.round(total * 100) / 100;
+  const matches = Math.abs(roundedSplit - roundedTotal) <= 0.01;
+  return { applies: true, complete: true, matches, total, splitTotal: roundedSplit };
+}
+
+export function checkAmountSplitFlag(check) {
+  const status = checkAmountSplitStatus(check);
+  if (!status.applies || (status.complete && status.matches)) return null;
+  return {
+    type: 'amount_not_split',
+    shortLabel: 'Amount not split',
+    message:
+      'Supporting pages did not provide a complete per-student split that matches the check total. Until the split matches, Excel will use the full check amount on every PID row.',
+  };
+}
+
 /**
  * Which required scalar fields are missing/invalid on a check.
  */
@@ -217,6 +261,7 @@ export function checkNeedsReview(check) {
   if (check?.verified) return false;
   if (checkFieldFlag(check)) return true;
   if (checkMultiPidFlag(check)) return true;
+  if (checkAmountSplitFlag(check)) return true;
   if (checkNameMismatchFlag(check)) return true;
   if (checkSupportingLooksLikeCheckFlag(check)) return true;
   if (checkExtractionFailedFlag(check)) return true;
@@ -256,6 +301,9 @@ export function checkIssueShortLabels(check) {
 
   const multiPidFlag = checkMultiPidFlag(check);
   if (multiPidFlag) push(multiPidFlag.shortLabel);
+
+  const amountSplitFlag = checkAmountSplitFlag(check);
+  if (amountSplitFlag) push(amountSplitFlag.shortLabel);
 
   const nameMismatchFlag = checkNameMismatchFlag(check);
   if (nameMismatchFlag) push(nameMismatchFlag.shortLabel);

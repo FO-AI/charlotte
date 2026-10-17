@@ -170,9 +170,34 @@ def _truthy_flag(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes"}
 
 
+def _normalize_pid_amounts(fields: Dict[str, Any], pid_list: Sequence[str]) -> List[Dict[str, str]]:
+    """Per-PID shares from supporting pages, limited to PIDs already found on the check."""
+    raw_amounts = fields.get("pid_amounts")
+    if not isinstance(raw_amounts, list):
+        return []
+
+    allowed_pids = set(pid_list)
+    normalized: List[Dict[str, str]] = []
+    seen = set()
+    for item in raw_amounts:
+        if not isinstance(item, dict):
+            continue
+        pid = _normalize_pid(item.get("pid"))
+        if not pid or pid not in allowed_pids or pid in seen:
+            continue
+        amount = _normalize_amount(item.get("amount"))
+        if amount is None:
+            continue
+        seen.add(pid)
+        normalized.append({"pid": pid, "amount": amount})
+    return normalized
+
+
 def _normalize_check_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
+    pid_list = _dedupe_pids(_pid_candidates(fields))
     return {
-        "pid_list": _dedupe_pids(_pid_candidates(fields)),
+        "pid_list": pid_list,
+        "pid_amounts": _normalize_pid_amounts(fields, pid_list),
         "amount": _normalize_amount(fields.get("amount")),
         "check_number": _normalize_text(fields.get("check_number")),
         "name": _normalize_text(fields.get("name")),

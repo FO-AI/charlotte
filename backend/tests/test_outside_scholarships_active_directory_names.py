@@ -263,6 +263,7 @@ def test_export_writes_reviewed_by_and_audit_columns(client, override_auth, app)
     assert "Amount: 100.00" in rows[0][11]
     assert "Added PID: 730000099" in rows[0][11]
     assert rows[1][0] == "730000099"
+    assert rows[1][1] == 1250.0
     assert rows[1][2] == "1001"
     assert not rows[1][4]
 
