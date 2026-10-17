@@ -267,6 +267,13 @@ class FakeLLM:
             "scholarship_name": scholarship_name,
             "aid_term": aid_term,
         }
+        pid_amounts = [
+            {"pid": page.supporting_pid, "amount": page.supporting_amount}
+            for page in supporting
+            if page.supporting_pid and page.supporting_amount
+        ]
+        if pid_amounts:
+            fields["pid_amounts"] = pid_amounts
         return self._reply(self.extraction_reply(check_number, fields))
 
     @staticmethod
@@ -406,7 +413,7 @@ def export_payload_from_preview(preview, verified_indexes=None):
             "name": check.get("name"),
             "provider": check.get("provider"),
             "scholarship_name": check.get("scholarship_name"),
-            "pids": list(check.get("pids") or []),
+            "pids": [dict(entry) for entry in (check.get("pids") or [])],
         }
         if check.get("aid_term"):
             extracted_fields["aid_term"] = check.get("aid_term")
