@@ -14,6 +14,12 @@ Instructions:
   the MICR line along the bottom of the check (the routing number is also 9 digits), the check number,
   approval or authorization numbers, or any other number that is not a student PID.
 - `amount`: the check amount as a numeric string (for example "1250.00").
+- `pid_amounts`: per-student shares from supporting pages only. Return a list of objects such as
+  {"pid": "730123456", "amount": "1000.00"} only when a supporting page clearly designates that
+  PID's individual dollar amount. Include only PIDs that already appear in `pid_list`; do not add a
+  PID that appears only on a supporting page. If supporting pages do not clearly assign every check
+  PID an amount, return only the clearly designated PID/amount pairs, or an empty list. Never invent
+  equal shares from boilerplate language such as "if not indicated, we will split evenly".
 - `check_number`: the check number printed on the check.
 - `name`: the student the scholarship is for. Use the student's name on the check when the check names
   one (memo, a "student" or "for" line, or "FBO"). These checks are often payable to the university. When
@@ -42,6 +48,7 @@ Instructions:
 Return ONLY valid JSON with exactly these keys:
 {
   "pid_list": ["string", "..."],
+  "pid_amounts": [{"pid": "string", "amount": "string"}, "..."],
   "amount": "string or null",
   "check_number": "string or null",
   "name": "string or null",

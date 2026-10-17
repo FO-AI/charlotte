@@ -129,3 +129,84 @@ def test_supporting_pages_fill_name_scholarship_and_term_without_replacing_amoun
     rows = list(worksheet.iter_rows(min_row=REVIEW_FIRST_DATA_ROW, values_only=True))
     assert rows[0][6] == "F/S"
     assert rows[1][6] == "F"
+
+
+def _excel_amounts(response):
+    worksheet = load_workbook(BytesIO(response.content)).active
+    return [
+        row[1]
+        for row in worksheet.iter_rows(min_row=REVIEW_FIRST_DATA_ROW, values_only=True)
+    ]
+
+
+def test_complete_supporting_pid_amount_split_reaches_preview_and_excel(client, override_auth, app):
+    response, _ = upload(
+        client,
+        app,
+        [FRONT, BACK, SUPPORTING, SUPPORTING, SUPPORTING, SUPPORTING],
+        back_pids={1001: ["730000001", "730000002", "730000003"]},
+        supporting_by_page={
+            3: {"supporting_pid": "730000001", "supporting_amount": "30.00"},
+            4: {"supporting_pid": "730000002", "supporting_amount": "30.00"},
+            5: {"supporting_pid": "730000003", "supporting_amount": "40.00"},
+            6: {"supporting_pid": "730999999", "supporting_amount": "999.00"},
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    preview = preview_payload(response)
+    pids = preview["checks"][0]["pids"]
+    assert [(entry["pid"], entry["amount"]) for entry in pids] == [
+        ("730000001", "30.00"),
+        ("730000002", "30.00"),
+        ("730000003", "40.00"),
+    ]
+
+    export_response = export_excel(client, app, preview)
+    assert export_response.status_code == 200, export_response.text
+    assert _excel_amounts(export_response) == [30, 30, 40]
+
+
+def test_incomplete_supporting_pid_amount_split_exports_full_check_amount(client, override_auth, app):
+    response, _ = upload(
+        client,
+        app,
+        [FRONT, BACK, SUPPORTING, SUPPORTING],
+        back_pids={1001: ["730000001", "730000002", "730000003"]},
+        supporting_by_page={
+            3: {"supporting_pid": "730000001", "supporting_amount": "30.00"},
+            4: {"supporting_pid": "730000002", "supporting_amount": "30.00"},
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    preview = preview_payload(response)
+    assert [entry.get("amount") for entry in preview["checks"][0]["pids"]] == [
+        "30.00",
+        "30.00",
+        None,
+    ]
+
+    export_response = export_excel(client, app, preview)
+    assert export_response.status_code == 200, export_response.text
+    assert _excel_amounts(export_response) == [100, 100, 100]
+
+
+def test_mismatched_supporting_pid_amount_split_exports_full_check_amount(client, override_auth, app):
+    response, _ = upload(
+        client,
+        app,
+        [FRONT, BACK, SUPPORTING, SUPPORTING, SUPPORTING],
+        back_pids={1001: ["730000001", "730000002", "730000003"]},
+        supporting_by_page={
+            3: {"supporting_pid": "730000001", "supporting_amount": "30.00"},
+            4: {"supporting_pid": "730000002", "supporting_amount": "30.00"},
+            5: {"supporting_pid": "730000003", "supporting_amount": "30.00"},
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    preview = preview_payload(response)
+    export_response = export_excel(client, app, preview)
+    assert export_response.status_code == 200, export_response.text
+    assert _excel_amounts(export_response) == [100, 100, 100]

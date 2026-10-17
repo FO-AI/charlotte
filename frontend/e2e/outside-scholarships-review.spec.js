@@ -33,6 +33,9 @@ async function stubReviewApis(page, previewBody, options = {}) {
   });
 
   await page.route('**/api/banking/outside-scholarships/export', async (route) => {
+    if (options.onExport) {
+      options.onExport(route.request().postDataJSON());
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -230,6 +233,80 @@ test.describe('Outside scholarships review flow', () => {
     const artifactsDir = path.join(__dirname, 'artifacts');
     fs.mkdirSync(artifactsDir, { recursive: true });
     await page.screenshot({ path: path.join(artifactsDir, 'outside-scholarships-multi-pid.png'), fullPage: true });
+  });
+
+  test('complete multi-PID amount split exports per-PID amounts after verification', async ({ page }) => {
+    let exportBody = null;
+    const splitPreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          provider: 'Example Foundation',
+          pids: [
+            { pid: FIXED_PID, amount: '100.00', active_directory: { status: 'found', name: AD_NAME } },
+            { pid: '987654321', amount: '150.00', active_directory: { status: 'found', name: AD_NAME } },
+          ],
+        },
+      ],
+    };
+    await stubReviewApis(page, splitPreview, { onExport: (body) => { exportBody = body; } });
+    await uploadAndOpenReview(page);
+
+    await expect(page.getByText(/Split matches check total/i)).toBeVisible();
+    await expect(page.getByText(/Amount not split/i)).toBeHidden();
+    await expect(page.getByText(/Multiple PIDs/i).first()).toBeVisible();
+
+    await page.getByRole('button', { name: 'Mark verified' }).click();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export Excel' }).click();
+    await downloadPromise;
+
+    expect(exportBody.checks[0].reviewed.pids.map((entry) => entry.amount)).toEqual([
+      '100.00',
+      '150.00',
+    ]);
+  });
+
+  test('incomplete multi-PID amount split is flagged until amounts sum to the check total', async ({ page }) => {
+    let exportBody = null;
+    const incompletePreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          provider: 'Example Foundation',
+          pids: [
+            { pid: FIXED_PID, amount: '100.00', active_directory: { status: 'found', name: AD_NAME } },
+            { pid: '987654321', amount: null, active_directory: { status: 'found', name: AD_NAME } },
+          ],
+        },
+      ],
+    };
+    await stubReviewApis(page, incompletePreview, { onExport: (body) => { exportBody = body; } });
+    await uploadAndOpenReview(page);
+
+    await expect(page.getByText(/Amount not split/i).first()).toBeVisible();
+    await expect(page.getByText(/Amounts not split/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
+
+    const secondAmount = page.getByLabel('Amount for PID 2 on check 1');
+    await secondAmount.fill('150.00');
+    await secondAmount.press('Enter');
+
+    await expect(page.getByText(/Split matches check total/i)).toBeVisible();
+    await expect(page.getByText(/Amount not split/i)).toBeHidden();
+    await expect(page.getByText(/Multiple PIDs/i).first()).toBeVisible();
+
+    await page.getByRole('button', { name: 'Mark verified' }).click();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export Excel' }).click();
+    await downloadPromise;
+
+    expect(exportBody.checks[0].reviewed.pids.map((entry) => entry.amount)).toEqual([
+      '100.00',
+      '150.00',
+    ]);
   });
 
   test('AD/payee name mismatch blocks export until corrected', async ({ page }) => {
