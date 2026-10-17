@@ -71,6 +71,15 @@ class OutsideScholarshipsDataLoader:
             raise ValueError(f"Aid term must be one of: {allowed}.")
         return value
 
+    def _row_aid_term(self, reviewed: Mapping[str, Any]) -> str:
+        """Use the term read for this check. Fall back to the upload-screen term when it has none."""
+        raw = self._text(reviewed.get("aid_term"))
+        if raw:
+            normalized = raw.strip().upper()
+            if normalized in ALLOWED_AID_TERMS:
+                return normalized
+        return self.aid_term
+
     @staticmethod
     def _to_decimal_amount(value: Any) -> Decimal:
         if value is None:
@@ -181,6 +190,7 @@ class OutsideScholarshipsDataLoader:
             ("check_number", "Check number"),
             ("provider", "Provider"),
             ("scholarship_name", "Scholarship name"),
+            ("aid_term", "Aid term"),
         )
         for field, label in field_labels:
             extracted_value = cls._text(extracted.get(field))
@@ -267,7 +277,7 @@ class OutsideScholarshipsDataLoader:
                         name,
                         self._excel_safe_text(ad_name),
                         self.aid_year,
-                        self.aid_term,
+                        self._row_aid_term(reviewed),
                         provider,
                         scholarship_name,
                         "Yes" if row_edited else "",

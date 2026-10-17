@@ -5,6 +5,7 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronDown,
+  Info,
   Loader2,
   Plus,
   RotateCcw,
@@ -302,6 +303,34 @@ function cloneChecks(checks) {
   }));
 }
 
+function normalizedAidTerm(term) {
+  const value = String(term ?? '').trim().toUpperCase();
+  return isAllowedAidTerm(value) ? value : null;
+}
+
+function checksAsExtracted(preview) {
+  // Keep the document term only. Null means the pages did not state a term — do not fill the
+  // batch fallback here, or the Excel audit will look like the model read that term.
+  return cloneChecks(preview?.checks || []).map((check) => ({
+    ...check,
+    supporting_images: Array.isArray(check.supporting_images) ? check.supporting_images : [],
+    aid_term: normalizedAidTerm(check.aid_term),
+  }));
+}
+
+function checksForReview(preview) {
+  const batchTerm = normalizedAidTerm(preview?.aid_term) || DEFAULT_AID_TERM;
+  return cloneChecks(preview?.checks || []).map((check) => {
+    const fromPage = normalizedAidTerm(check.aid_term);
+    return {
+      ...check,
+      supporting_images: Array.isArray(check.supporting_images) ? check.supporting_images : [],
+      aid_term: fromPage || batchTerm,
+      aid_term_source: fromPage ? 'document' : 'batch',
+    };
+  });
+}
+
 function checksPidsWithKeys(pids) {
   if (!pids?.length) return [blankPidEntry()];
   return pids.map((entry) => {
@@ -323,8 +352,15 @@ function checksPidsWithKeys(pids) {
 }
 
 function pageHint(check) {
-  if (check.back_page) return `pp. ${check.front_page}–${check.back_page}`;
-  return `p. ${check.front_page}`;
+  const pages = [check.front_page, check.back_page, ...(check.supporting_pages || [])].filter(
+    (page) => Number.isFinite(page)
+  );
+  if (!pages.length) return `p. ${check.front_page ?? ''}`;
+  const first = Math.min(...pages);
+  const last = Math.max(...pages);
+  if (first === last) return `p. ${first}`;
+  // The back can be the last scanned page while the list stores it before the stubs.
+  return `pp. ${first}–${last}`;
 }
 
 function StatusListIcon({ check }) {
@@ -416,18 +452,20 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   }
   const apiClient = apiClientRef.current;
 
-  const extractedRef = useRef(cloneChecks(preview?.checks || []));
-  const [checks, setChecks] = useState(() => cloneChecks(preview?.checks || []));
+  const extractedRef = useRef(checksAsExtracted(preview));
+  const [checks, setChecks] = useState(() => checksForReview(preview));
   const checksRef = useRef(checks);
   checksRef.current = checks;
   const [aidYear, setAidYear] = useState(preview?.aid_year || DEFAULT_AID_YEAR);
-  const [aidTerm, setAidTerm] = useState(preview?.aid_term || DEFAULT_AID_TERM);
+  const [aidTerm, setAidTerm] = useState(
+    () => normalizedAidTerm(preview?.aid_term) || DEFAULT_AID_TERM
+  );
   const [filter, setFilter] = useState(() => {
-    const initial = cloneChecks(preview?.checks || []);
+    const initial = checksForReview(preview);
     return summarizeReview(initial).needsReview > 0 ? 'needs_review' : 'all';
   });
   const [selectedIndex, setSelectedIndex] = useState(() => {
-    const initial = cloneChecks(preview?.checks || []);
+    const initial = checksForReview(preview);
     const firstNeeding = initial.findIndex((check) => checkNeedsReview(check));
     return firstNeeding >= 0 ? firstNeeding : 0;
   });
@@ -873,6 +911,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             name: original.name,
             provider: original.provider,
             scholarship_name: original.scholarship_name,
+            aid_term: original.aid_term,
             pids: (original.pids || []).map((entry) => ({
               pid: entry.pid,
               active_directory: entry.active_directory,
@@ -884,6 +923,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             name: check.name,
             provider: check.provider,
             scholarship_name: check.scholarship_name,
+            aid_term: check.aid_term,
             pids: (check.pids || []).map((entry) => ({
               pid: entry.pid,
               active_directory: entry.active_directory,
@@ -961,72 +1001,101 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
         aria-modal="true"
         aria-label="Review outside scholarship checks"
       >
-        <div className="border-b border-[#B7D7ED] bg-white px-4 py-3.5 shadow-sm flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0">
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-3 border-b border-[#B7D7ED] bg-white px-4 py-3 shadow-sm">
+          <div className="min-w-0 w-52 shrink-0">
             <p className="text-xs font-semibold uppercase tracking-wide text-[#4B9CD3]">
               Outside scholarships
             </p>
-            <p className="mt-0.5 text-sm text-muted-foreground truncate">
+            <p className="mt-0.5 truncate text-sm text-muted-foreground" title={preview?.filename || 'checks.pdf'}>
               {preview?.filename || 'checks.pdf'}
             </p>
-            <div className="mt-2.5 flex flex-wrap items-end gap-3">
-              <label className="text-sm">
-                <span className="block mb-1.5 text-[0.95rem] font-bold text-navy">Aid year</span>
-                <Input
-                  value={aidYear}
-                  maxLength={4}
-                  inputMode="numeric"
-                  className={`${FOCUS_INPUT} w-28`}
-                  onChange={(event) => {
-                    setAidYear(event.target.value);
-                    markDirty();
-                  }}
-                />
-              </label>
-              <label className="text-sm">
-                <span className="block mb-1.5 text-[0.95rem] font-bold text-navy">Aid term</span>
-                <select
-                  value={aidTerm}
-                  className={`${FOCUS_INPUT} w-28`}
-                  onChange={(event) => {
-                    setAidTerm(event.target.value);
-                    markDirty();
-                  }}
-                >
-                  {ALLOWED_AID_TERMS.map((term) => (
-                    <option key={term} value={term}>
-                      {term}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div
-                className={`mb-0.5 flex items-center gap-2 rounded-full px-3 py-1.5 text-sm ${
-                  summary.needsReview > 0
-                    ? 'bg-red-50 text-red-950 ring-1 ring-red-200'
-                    : 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200'
-                }`}
-              >
-                {summary.needsReview > 0 ? (
-                  <AlertCircle className="h-4 w-4 text-red-600 shrink-0" aria-hidden="true" />
-                ) : (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-hidden="true" />
-                )}
-                <span className="font-semibold">
-                  {summary.needsReview} of {summary.checkCount} left
-                </span>
-                <span className="text-muted-foreground font-normal">
-                  · {summary.pidCount} PIDs · $
-                  {summary.totalAmount.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
+          </div>
+
+          <div className="flex items-end gap-3">
+            <label className="text-sm">
+              <span className="mb-1.5 flex h-5 items-center text-sm font-bold text-navy">Aid year</span>
+              <Input
+                value={aidYear}
+                maxLength={4}
+                inputMode="numeric"
+                className={`${FOCUS_INPUT} w-24`}
+                onChange={(event) => {
+                  setAidYear(event.target.value);
+                  markDirty();
+                }}
+              />
+            </label>
+            <div className="text-sm">
+              <div className="mb-1.5 flex h-5 items-center gap-1">
+                <label htmlFor="batch-aid-term" className="text-sm font-bold text-navy">
+                  Aid term
+                </label>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[#4B9CD3] hover:bg-[#EDF5FB] focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy"
+                      aria-label="Fallback when a check's pages do not state a term."
+                    >
+                      <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Fallback when a check&apos;s pages do not state a term.
+                  </TooltipContent>
+                </Tooltip>
               </div>
+              <select
+                id="batch-aid-term"
+                value={aidTerm}
+                aria-label="Aid term"
+                className={`${FOCUS_INPUT} h-10 w-24`}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setAidTerm(value);
+                  setChecks((prev) =>
+                    prev.map((check) =>
+                      check.aid_term_source === 'batch' ? { ...check, aid_term: value } : check
+                    )
+                  );
+                  markDirty();
+                }}
+              >
+                {ALLOWED_AID_TERMS.map((term) => (
+                  <option key={term} value={term}>
+                    {term}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex rounded-lg border border-[#B7D7ED] bg-[#EDF5FB]/50 p-0.5 overflow-hidden">
+
+          <div
+            className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm ${
+              summary.needsReview > 0
+                ? 'bg-red-50 text-red-950 ring-1 ring-red-200'
+                : 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200'
+            }`}
+          >
+            {summary.needsReview > 0 ? (
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-600" aria-hidden="true" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+            )}
+            <span className="font-semibold">
+              {summary.needsReview} of {summary.checkCount} left
+            </span>
+            <span className="font-normal text-muted-foreground">
+              · {summary.pidCount} PIDs · $
+              {summary.totalAmount.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </span>
+          </div>
+
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <div className="flex overflow-hidden rounded-lg border border-[#B7D7ED] bg-[#EDF5FB]/50 p-0.5">
               <Button
                 type="button"
                 variant={filter === 'all' ? 'default' : 'ghost'}
@@ -1048,27 +1117,22 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
               Next issue
               <ChevronDown className="h-4 w-4" aria-hidden="true" />
             </Button>
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" onClick={handleClose} disabled={exporting}>
-                Cancel
-              </Button>
-              <div className="flex flex-col items-end gap-1">
-                <Button
-                  type="button"
-                  onClick={handleExport}
-                  disabled={exporting || summary.needsReview > 0 || exportBlockedByBadPid}
-                >
-                  {exporting ? 'Exporting…' : 'Export Excel'}
-                </Button>
-                {exportBlockedByBadPid ? (
-                  <span className="text-xs text-red-700">Bad PID — fix or clear before export</span>
-                ) : summary.needsReview > 0 ? (
-                  <span className="text-xs text-muted-foreground">
-                    {summary.needsReview} of {summary.checkCount} left
-                  </span>
-                ) : null}
-              </div>
-            </div>
+            <Button type="button" variant="outline" size="sm" onClick={handleClose} disabled={exporting}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleExport}
+              disabled={exporting || summary.needsReview > 0 || exportBlockedByBadPid}
+            >
+              {exporting ? 'Exporting…' : 'Export Excel'}
+            </Button>
+            {exportBlockedByBadPid ? (
+              <span className="max-w-[9rem] text-xs leading-tight text-red-700">
+                Bad PID — fix or clear before export
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -1197,6 +1261,36 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                         emptyLabel="No back was scanned for this check."
                         onOpen={setLightbox}
                       />
+                      <div className={`${SECTION_CARD} md:col-span-2`}>
+                        <p className="mb-2 text-base font-bold text-navy">Supporting</p>
+                        {(selectedCheck.supporting_images || []).length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            No supporting pages for this check.
+                          </p>
+                        ) : (
+                          <div className="flex gap-3 overflow-x-auto pb-1">
+                            {selectedCheck.supporting_images.map((src, index) => {
+                              const alt = `Supporting page ${index + 1} of check ${selectedCheck.check_index}`;
+                              return (
+                                <button
+                                  key={`${selectedCheck.check_index}-supporting-${index}`}
+                                  type="button"
+                                  className="w-36 shrink-0 overflow-hidden rounded-lg border border-[#B7D7ED] bg-white text-left focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-navy"
+                                  onClick={() => setLightbox({ src, alt })}
+                                  aria-label={`Enlarge ${alt}`}
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={src}
+                                    alt={alt}
+                                    className="h-28 w-full object-contain bg-white"
+                                  />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
@@ -1207,6 +1301,31 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                           Edit extracted fields as needed
                         </p>
                       </div>
+                      <label className="sm:col-span-2">
+                        <FieldLabel>Aid term</FieldLabel>
+                        <select
+                          aria-label={`Aid term for check ${selectedCheck.check_index}`}
+                          className={`${FOCUS_INPUT} w-28`}
+                          value={selectedCheck.aid_term || aidTerm}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            updateCheck(selectedCheck.check_index, (current) => ({
+                              ...current,
+                              aid_term: value,
+                              aid_term_source: 'manual',
+                            }));
+                          }}
+                        >
+                          {ALLOWED_AID_TERMS.map((term) => (
+                            <option key={term} value={term}>
+                              {term}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedCheck.aid_term_source === 'document' ? (
+                          <p className="mt-1 text-xs text-muted-foreground">Read from this check&apos;s pages.</p>
+                        ) : null}
+                      </label>
                       <label className="sm:col-span-2">
                         <FieldLabel invalid={payeeNameInvalid}>Payee name</FieldLabel>
                         <div className="space-y-1">
