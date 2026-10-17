@@ -60,3 +60,7 @@ node_modules
 
 # Local design-reference scrapes (third-party HTML/CSS/images; do not commit)
 .design-reference/
+
+# Local UNC AIAP pack (contains instructions; keep keys out of git)
+Codex-keys-config.zip
+Codex-keys-config/

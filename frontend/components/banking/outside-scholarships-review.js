@@ -308,6 +308,16 @@ function normalizedAidTerm(term) {
   return isAllowedAidTerm(value) ? value : null;
 }
 
+function checksAsExtracted(preview) {
+  // Keep the document term only. Null means the pages did not state a term — do not fill the
+  // batch fallback here, or the Excel audit will look like the model read that term.
+  return cloneChecks(preview?.checks || []).map((check) => ({
+    ...check,
+    supporting_images: Array.isArray(check.supporting_images) ? check.supporting_images : [],
+    aid_term: normalizedAidTerm(check.aid_term),
+  }));
+}
+
 function checksForReview(preview) {
   const batchTerm = normalizedAidTerm(preview?.aid_term) || DEFAULT_AID_TERM;
   return cloneChecks(preview?.checks || []).map((check) => {
@@ -442,7 +452,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   }
   const apiClient = apiClientRef.current;
 
-  const extractedRef = useRef(checksForReview(preview));
+  const extractedRef = useRef(checksAsExtracted(preview));
   const [checks, setChecks] = useState(() => checksForReview(preview));
   const checksRef = useRef(checks);
   checksRef.current = checks;

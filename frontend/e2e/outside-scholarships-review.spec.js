@@ -473,7 +473,10 @@ test.describe('Outside scholarships review flow', () => {
     await page.getByRole('button', { name: 'Export Excel' }).click();
     await expect.poll(() => exportBody).not.toBeNull();
     expect(exportBody.aid_term).toBe('S');
+    expect(exportBody.checks[0].extracted.aid_term).toBe('F/S');
     expect(exportBody.checks[0].reviewed.aid_term).toBe('F/S');
+    // Check 2 had no document term — extracted stays blank; reviewed uses the header fallback.
+    expect(exportBody.checks[1].extracted.aid_term).toBeNull();
     expect(exportBody.checks[1].reviewed.aid_term).toBe('S');
   });
 });
