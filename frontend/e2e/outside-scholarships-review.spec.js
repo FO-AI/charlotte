@@ -232,6 +232,87 @@ test.describe('Outside scholarships review flow', () => {
     await page.screenshot({ path: path.join(artifactsDir, 'outside-scholarships-multi-pid.png'), fullPage: true });
   });
 
+  // Om #55: supporting page with its own amount+PID is flag-only — export blocked until Mark verified.
+  test('supporting looks like check requires review until Mark verified', async ({ page }) => {
+    const image = preview.checks[0].front_image;
+    const supportingLooksLikeCheckPreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          provider: 'Example Foundation',
+          amount: '250.00',
+          name: 'Alex Example',
+          supporting_pages: [2],
+          supporting_images: [image],
+          supporting_has_amount_and_pid: true,
+          extraction_failed: false,
+          pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } }],
+        },
+      ],
+    };
+    await stubReviewApis(page, supportingLooksLikeCheckPreview);
+    await uploadAndOpenReview(page);
+
+    await expect(page.getByText(/Supporting looks like check/i).first()).toBeVisible();
+    await expect(page.getByText(/1 of 1 left/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
+
+    const verifyButton = page.getByRole('button', { name: 'Mark verified' });
+    await expect(verifyButton).toBeEnabled();
+    await verifyButton.click();
+
+    await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+    await expect(page.getByText(/0 of 1 left/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
+
+    const artifactsDir = path.join(__dirname, 'artifacts');
+    fs.mkdirSync(artifactsDir, { recursive: true });
+    await page.screenshot({
+      path: path.join(artifactsDir, 'outside-scholarships-supporting-looks-like-check.png'),
+      fullPage: true,
+    });
+  });
+
+  // Om #55: per-check extraction failure is flag-only — other checks OK; this one needs Mark verified.
+  test('extraction failed requires review until Mark verified', async ({ page }) => {
+    const extractionFailedPreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          provider: 'Example Foundation',
+          amount: '250.00',
+          name: 'Alex Example',
+          supporting_has_amount_and_pid: false,
+          extraction_failed: true,
+          pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } }],
+        },
+      ],
+    };
+    await stubReviewApis(page, extractionFailedPreview);
+    await uploadAndOpenReview(page);
+
+    await expect(page.getByText(/Extraction failed/i).first()).toBeVisible();
+    await expect(page.getByText(/1 of 1 left/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
+
+    const verifyButton = page.getByRole('button', { name: 'Mark verified' });
+    await expect(verifyButton).toBeEnabled();
+    await verifyButton.click();
+
+    await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+    await expect(page.getByText(/0 of 1 left/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
+
+    const artifactsDir = path.join(__dirname, 'artifacts');
+    fs.mkdirSync(artifactsDir, { recursive: true });
+    await page.screenshot({
+      path: path.join(artifactsDir, 'outside-scholarships-extraction-failed.png'),
+      fullPage: true,
+    });
+  });
+
   test('AD/payee name mismatch blocks export until corrected', async ({ page }) => {
     const mismatchName = 'Mismatch, Morgan';
     const mismatchPreview = {
@@ -389,5 +470,94 @@ test.describe('Outside scholarships review flow', () => {
       { timeout: 10_000 }
     );
     await expect(page.getByText(/Missing provider/i).first()).toBeVisible();
+  });
+
+  test('supporting thumbnails open, and a document term survives the header term', async ({ page }) => {
+    const image = preview.checks[0].front_image;
+    const okPid = {
+      pid: FIXED_PID,
+      active_directory: { status: 'found', name: AD_NAME },
+    };
+    const supportingPreview = {
+      ...preview,
+      aid_term: 'F',
+      checks: [
+        {
+          ...preview.checks[0],
+          check_index: 1,
+          provider: 'Example Foundation',
+          amount: '250.00',
+          name: 'Alex Example',
+          scholarship_name: 'Wells Fargo Award',
+          aid_term: 'F/S',
+          supporting_pages: [2],
+          supporting_images: [image],
+          pids: [okPid],
+        },
+        {
+          ...preview.checks[0],
+          check_index: 2,
+          check_number: '1002',
+          provider: 'Other Foundation',
+          amount: '10.00',
+          name: 'Alex Example',
+          scholarship_name: 'Other Award',
+          aid_term: null,
+          supporting_pages: [],
+          supporting_images: [],
+          pids: [okPid],
+        },
+      ],
+    };
+
+    let exportBody = null;
+    await stubReviewApis(page, supportingPreview);
+    await page.route('**/api/banking/outside-scholarships/export', async (route) => {
+      exportBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers: {
+          'content-disposition': 'attachment; filename="outside_scholarships_reviewed.xlsx"',
+        },
+        body: Buffer.from('PK-fake-xlsx'),
+      });
+    });
+
+    await page.goto('/e2e/outside-scholarships');
+    await expect(page.getByText(/then that check's letters or forms, then the next check/i)).toBeVisible();
+
+    const pdfBytes = Buffer.from('%PDF-1.1\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n', 'utf8');
+    await page.setInputFiles('input[type="file"]', {
+      name: 'sample-checks.pdf',
+      mimeType: 'application/pdf',
+      buffer: pdfBytes,
+    });
+    await page.getByRole('button', { name: 'Upload Check PDF' }).click();
+
+    await expect(page.getByRole('button', { name: /Enlarge Supporting page 1 of check 1/i })).toBeVisible();
+    await page.getByRole('button', { name: /Enlarge Supporting page 1 of check 1/i }).click();
+    await expect(page.getByRole('dialog', { name: 'Supporting page 1 of check 1' })).toBeVisible();
+    await page.getByRole('button', { name: 'Close' }).click();
+
+    const checkTerm = page.getByRole('combobox', { name: 'Aid term for check 1' });
+    await expect(checkTerm).toHaveValue('F/S');
+    await expect(page.getByText("Read from this check's pages.")).toBeVisible();
+
+    await page.getByRole('combobox', { name: 'Aid term', exact: true }).selectOption('S');
+    await expect(checkTerm).toHaveValue('F/S');
+
+    await page.getByRole('option', { name: /Check 2/i }).click();
+    await expect(page.getByRole('combobox', { name: 'Aid term for check 2' })).toHaveValue('S');
+    await expect(page.getByText('No supporting pages for this check.')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Export Excel' }).click();
+    await expect.poll(() => exportBody).not.toBeNull();
+    expect(exportBody.aid_term).toBe('S');
+    expect(exportBody.checks[0].extracted.aid_term).toBe('F/S');
+    expect(exportBody.checks[0].reviewed.aid_term).toBe('F/S');
+    // Check 2 had no document term — extracted stays blank; reviewed uses the header fallback.
+    expect(exportBody.checks[1].extracted.aid_term).toBeNull();
+    expect(exportBody.checks[1].reviewed.aid_term).toBe('S');
   });
 });

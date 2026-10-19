@@ -182,7 +182,7 @@ class OutsideScholarshipService:
 
     @staticmethod
     def _preview_image_char_count(checks: Any) -> int:
-        """Total character length of preview JPEG data URLs (front_image / back_image)."""
+        """Total character length of preview JPEG data URLs, including supporting pages."""
         total = 0
         for check in checks if isinstance(checks, list) else []:
             if not isinstance(check, dict):
@@ -191,6 +191,10 @@ class OutsideScholarshipService:
             back = check.get("back_image") or ""
             total += len(front) if isinstance(front, str) else 0
             total += len(back) if isinstance(back, str) else 0
+            supporting = check.get("supporting_images")
+            if isinstance(supporting, list):
+                for image in supporting:
+                    total += len(image) if isinstance(image, str) else 0
         return total
 
     @staticmethod
@@ -240,18 +244,30 @@ class OutsideScholarshipService:
                         }
                     )
             metadata = check.get("metadata") if isinstance(check.get("metadata"), dict) else {}
+            supporting_images = check.get("supporting_images")
+            if not isinstance(supporting_images, list):
+                supporting_images = []
+            supporting_pages = check.get("supporting_pages")
+            if not isinstance(supporting_pages, list):
+                supporting_pages = []
+            aid_term_value = check.get("aid_term")
             preview_checks.append(
                 {
                     "check_index": metadata.get("check_index", check.get("check_index")),
                     "front_page": check.get("front_page"),
                     "back_page": check.get("back_page"),
+                    "supporting_pages": supporting_pages,
                     "front_image": check.get("front_image"),
                     "back_image": check.get("back_image"),
+                    "supporting_images": supporting_images,
                     "amount": check.get("amount"),
                     "check_number": check.get("check_number"),
                     "name": check.get("name"),
                     "provider": check.get("provider"),
                     "scholarship_name": check.get("scholarship_name"),
+                    "aid_term": aid_term_value if isinstance(aid_term_value, str) else None,
+                    "supporting_has_amount_and_pid": bool(check.get("supporting_has_amount_and_pid")),
+                    "extraction_failed": bool(check.get("extraction_failed")),
                     "pids": pids,
                 }
             )

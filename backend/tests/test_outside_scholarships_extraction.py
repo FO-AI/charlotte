@@ -134,12 +134,18 @@ def test_single_pid_returned_without_a_list_is_kept(client, override_auth, app, 
         pytest.param('["730001002"]', "returned list, not an object", id="json-list"),
     ],
 )
-def test_unreadable_reply_for_one_check_fails_the_upload(client, override_auth, app, caplog, reply, logged_reason):
+def test_unreadable_reply_for_one_check_flags_that_check_only(
+    client, override_auth, app, caplog, reply, logged_reason
+):
     def unreadable_second_check(check_number, fields):
         return reply if check_number == 1002 else json.dumps(fields)
 
     response, _ = upload(client, app, [FRONT, BACK, FRONT, BACK], extraction_reply=unreadable_second_check)
 
-    assert response.status_code == 500
-    assert response.json()["detail"] == "Failed to process outside scholarship PDF."
+    assert response.status_code == 200, response.text
+    first, second = preview_payload(response)["checks"]
+    assert first["extraction_failed"] is False
+    assert first["amount"] == "100.00"
+    assert second["extraction_failed"] is True
+    assert second["amount"] is None
     assert f"Field extraction for check 2 {logged_reason}" in caplog.text

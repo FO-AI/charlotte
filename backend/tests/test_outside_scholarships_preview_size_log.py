@@ -1,4 +1,4 @@
-"""Preview size log must count front_image/back_image data URLs (not legacy preview keys)."""
+"""Preview size log must count front, back, and supporting JPEG data URLs (not legacy preview keys)."""
 
 import logging
 import re
@@ -12,6 +12,7 @@ def test_preview_image_char_count_uses_front_and_back_image_keys():
         {
             "front_image": "data:image/jpeg;base64,aaa",
             "back_image": "data:image/jpeg;base64,bbbb",
+            "supporting_images": ["data:image/jpeg;base64,supp"],
             "front_preview": "x" * 1000,
             "back_preview": "y" * 1000,
         },
@@ -22,6 +23,7 @@ def test_preview_image_char_count_uses_front_and_back_image_keys():
     assert OutsideScholarshipService._preview_image_char_count(checks) == (
         len("data:image/jpeg;base64,aaa")
         + len("data:image/jpeg;base64,bbbb")
+        + len("data:image/jpeg;base64,supp")
         + len("data:image/jpeg;base64,cc")
     )
     assert OutsideScholarshipService._preview_image_char_count([]) == 0
