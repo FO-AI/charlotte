@@ -9,7 +9,14 @@ import json
 
 import pytest
 
-from outside_scholarships_fakes import BACK, FRONT, default_pid, preview_pid_amount_rows, upload
+from outside_scholarships_fakes import (
+    BACK,
+    FRONT,
+    default_pid,
+    preview_payload,
+    preview_pid_amount_rows,
+    upload,
+)
 
 # A classification batch is sent up to this many times before the upload fails.
 _CLASSIFICATION_ATTEMPTS = 3
@@ -60,18 +67,32 @@ def test_pages_group_into_checks_by_detected_side(
     assert llm.image_counts_by_check() == expected_image_counts
 
 
-@pytest.mark.parametrize(
-    ("sides", "orphan_page"),
-    [
-        pytest.param([BACK, FRONT], 1, id="leading-back"),
-        pytest.param([FRONT, BACK, BACK], 3, id="two-backs-in-a-row"),
-    ],
-)
-def test_back_without_front_is_rejected_with_page_number(client, override_auth, app, sides, orphan_page):
-    response, llm = upload(client, app, sides)
+def test_page_one_back_label_is_forced_to_front(client, override_auth, app):
+    def first_page_mislabeled_back(pages):
+        return json.dumps(
+            {
+                "pages": [
+                    {"page": page, "side": BACK if page == 1 else FRONT}
+                    for page in pages
+                ]
+            }
+        )
+
+    response, llm = upload(client, app, [FRONT, FRONT], classify_reply=first_page_mislabeled_back)
+
+    assert response.status_code == 200, response.text
+    checks = preview_payload(response)["checks"]
+    assert [check["front_page"] for check in checks] == [1, 2]
+    assert [check["extraction_failed"] for check in checks] == [False, False]
+    assert preview_pid_amount_rows(response) == [("", 100.0), ("", 200.0)]
+    assert llm.extraction_calls == 2
+
+
+def test_second_back_is_rejected_with_page_number(client, override_auth, app):
+    response, llm = upload(client, app, [FRONT, BACK, BACK])
 
     assert response.status_code == 400
-    assert f"Page {orphan_page} " in response.json()["detail"]
+    assert "Page 3 " in response.json()["detail"]
     assert llm.extraction_calls == 0
 
 

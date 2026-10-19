@@ -162,6 +162,14 @@ def _normalize_aid_term(value: Any) -> Optional[str]:
     return None
 
 
+def _truthy_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes"}
+
+
 def _normalize_check_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "pid_list": _dedupe_pids(_pid_candidates(fields)),
@@ -171,7 +179,22 @@ def _normalize_check_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
         "provider": _normalize_text(fields.get("provider")),
         "scholarship_name": _normalize_text(fields.get("scholarship_name")),
         "aid_term": _normalize_aid_term(fields.get("aid_term")),
+        "supporting_has_amount_and_pid": _truthy_flag(fields.get("supporting_has_amount_and_pid")),
     }
+
+
+def _force_first_page_front(sides: Sequence[str]) -> List[str]:
+    """Treat PDF page 1 as a check front so a classifier miss does not reject the upload."""
+    if not sides:
+        return []
+    forced = list(sides)
+    if forced[0] != _FRONT_SIDE:
+        logger.warning(
+            "outside_scholarships.pairing: forcing page 1 from %s to front",
+            forced[0],
+        )
+        forced[0] = _FRONT_SIDE
+    return forced
 
 
 def _render_page_png(document: fitz.Document, page_index: int, dpi: int) -> bytes:
@@ -336,7 +359,9 @@ def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[st
             document = fitz.open(stream=pdf_bytes, filetype="pdf")
             page_count = document.page_count
         try:
-            page_sides = _classify_page_sides(document, page_count, llm, config.get("max_concurrency"))
+            page_sides = _force_first_page_front(
+                _classify_page_sides(document, page_count, llm, config.get("max_concurrency"))
+            )
             logger.info(
                 "outside_scholarships.pairing: pdf=%s pages=%s sides=%s",
                 pdf_idx,
@@ -506,6 +531,8 @@ def process_check_node(state: WorkerState, config: RunnableConfig) -> Dict[str, 
     so parallel workers never collide on a single-value key. The check index travels in
     metadata so aggregate_node can restore check order. Preview JPEGs and page numbers go
     on the check itself for the review UI.
+
+    Extraction failures stay on this check so other checks in the PDF can still finish.
     """
     check_index = state.get("check_index")
     front_page = state.get("front_page")
@@ -520,17 +547,27 @@ def process_check_node(state: WorkerState, config: RunnableConfig) -> Dict[str, 
         back_preview,
         supporting_previews,
     ) = _render_check_images(pair_pdf_bytes, back_page is not None)
-    check_fields = _extract_check_fields(
-        check_index,
-        front_image,
-        back_image,
-        supporting_images,
-        config["configurable"]["llm"],
-    )
+    try:
+        check_fields = _extract_check_fields(
+            check_index,
+            front_image,
+            back_image,
+            supporting_images,
+            config["configurable"]["llm"],
+        )
+        extraction_failed = False
+    except Exception:
+        logger.exception(
+            "outside_scholarships.extract: check=%s failed; continuing with other checks",
+            check_index,
+        )
+        check_fields = _normalize_check_fields({})
+        extraction_failed = True
     return {
         "check_results": [
             {
                 **check_fields,
+                "extraction_failed": extraction_failed,
                 "front_page": front_page,
                 "back_page": back_page,
                 "supporting_pages": supporting_pages,

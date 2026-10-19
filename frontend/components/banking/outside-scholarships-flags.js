@@ -98,6 +98,27 @@ export function checkNameMismatchFlag(check) {
   };
 }
 
+/** Supporting page looks like its own check (amount + PID) — possible mis-group. */
+export function checkSupportingLooksLikeCheckFlag(check) {
+  if (!check?.supporting_has_amount_and_pid) return null;
+  return {
+    type: 'supporting_looks_like_check',
+    shortLabel: 'Supporting looks like check',
+    message:
+      'A supporting page has its own amount and PID. Confirm this check was grouped correctly before export.',
+  };
+}
+
+/** Vision/extraction failed for this check; other checks may still be OK. */
+export function checkExtractionFailedFlag(check) {
+  if (!check?.extraction_failed) return null;
+  return {
+    type: 'extraction_failed',
+    shortLabel: 'Extraction failed',
+    message: 'Field extraction failed for this check. Review the images and enter values manually, or re-upload.',
+  };
+}
+
 /** True when a PID field has text that is not exactly nine digits (blank is OK). */
 export function isNonBlankBadPid(pid) {
   const text = String(pid ?? '').trim();
@@ -197,6 +218,8 @@ export function checkNeedsReview(check) {
   if (checkFieldFlag(check)) return true;
   if (checkMultiPidFlag(check)) return true;
   if (checkNameMismatchFlag(check)) return true;
+  if (checkSupportingLooksLikeCheckFlag(check)) return true;
+  if (checkExtractionFailedFlag(check)) return true;
   const pids = Array.isArray(check?.pids) && check.pids.length ? check.pids : [{ pid: '' }];
   return pids.some((entry) => Boolean(pidEntryFlag(entry)));
 }
@@ -236,6 +259,12 @@ export function checkIssueShortLabels(check) {
 
   const nameMismatchFlag = checkNameMismatchFlag(check);
   if (nameMismatchFlag) push(nameMismatchFlag.shortLabel);
+
+  const supportingFlag = checkSupportingLooksLikeCheckFlag(check);
+  if (supportingFlag) push(supportingFlag.shortLabel);
+
+  const extractionFlag = checkExtractionFailedFlag(check);
+  if (extractionFlag) push(extractionFlag.shortLabel);
 
   const pids = Array.isArray(check.pids) && check.pids.length ? check.pids : [{ pid: '' }];
   for (const entry of pids) {

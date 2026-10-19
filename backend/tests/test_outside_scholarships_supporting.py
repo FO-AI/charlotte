@@ -15,7 +15,11 @@ from outside_scholarships_fakes import (
     upload,
 )
 from prompts.outside_scholarship import EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
-from services.banking.outside_scholarships.nodes import _group_pages_by_check, _normalize_aid_term
+from services.banking.outside_scholarships.nodes import (
+    _force_first_page_front,
+    _group_pages_by_check,
+    _normalize_aid_term,
+)
 
 
 def test_grouping_checks_in_a_row_with_no_supporting_pages():
@@ -42,6 +46,21 @@ def test_grouping_front_back_then_supporting():
 def test_grouping_rejects_a_supporting_page_before_any_check():
     with pytest.raises(ValueError, match="no check before it"):
         _group_pages_by_check([SUPPORTING, FRONT])
+
+
+def test_force_first_page_front_overrides_a_misclassified_page_one():
+    assert _force_first_page_front([SUPPORTING, FRONT, SUPPORTING]) == [FRONT, FRONT, SUPPORTING]
+    assert _force_first_page_front([FRONT, BACK]) == [FRONT, BACK]
+
+
+def test_misclassified_page_one_still_uploads(client, override_auth, app):
+    """Classifier can call page 1 supporting; pairing forces front so the PDF is not rejected."""
+    response, _ = upload(client, app, [SUPPORTING, FRONT, BACK], back_pids={1002: "730000002"})
+    assert response.status_code == 200, response.text
+    checks = preview_payload(response)["checks"]
+    assert [check["front_page"] for check in checks] == [1, 2]
+    assert checks[0]["supporting_pages"] == []
+    assert checks[1]["back_page"] == 3
 
 
 def test_grouping_keeps_a_back_that_was_scanned_after_a_supporting_page():
@@ -82,6 +101,31 @@ def test_prompt_ignores_an_unmarked_option_list():
     assert "if not indicated, we will split evenly" in EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
     assert "printed list of options is not a selection" in EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
     assert "Do not add a PID that appears only on a supporting page" in EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
+    assert "supporting_has_amount_and_pid" in EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
+
+
+def test_one_check_extraction_failure_does_not_fail_the_upload(client, override_auth, app):
+    import json
+
+    def extraction_reply(check_number, fields):
+        if check_number == 1001:
+            raise RuntimeError("simulated vision failure")
+        return json.dumps(fields)
+
+    response, _ = upload(
+        client,
+        app,
+        [FRONT, BACK, FRONT, BACK],
+        back_pids={1001: "730000001", 1002: "730000002"},
+        extraction_reply=extraction_reply,
+    )
+    assert response.status_code == 200, response.text
+    first, second = preview_payload(response)["checks"]
+    assert first["extraction_failed"] is True
+    assert first["amount"] is None
+    assert second["extraction_failed"] is False
+    assert second["amount"] == "200.00"
+    assert [entry["pid"] for entry in second["pids"]] == ["730000002"]
 
 
 def test_supporting_pages_fill_name_scholarship_and_term_without_replacing_amount_or_pid(
@@ -118,10 +162,13 @@ def test_supporting_pages_fill_name_scholarship_and_term_without_replacing_amoun
     assert first["supporting_pages"] == [3, 4]
     assert len(first["supporting_images"]) == 2
     assert all(image.startswith("data:image/jpeg;base64,") for image in first["supporting_images"])
+    assert first["supporting_has_amount_and_pid"] is True
+    assert first["extraction_failed"] is False
     assert llm.image_counts_by_check()[1001] == 4
     assert second["aid_term"] is None
     assert second["supporting_images"] == []
     assert second["amount"] == "200.00"
+    assert second["supporting_has_amount_and_pid"] is False
 
     export_response = export_excel(client, app, preview)
     assert export_response.status_code == 200, export_response.text

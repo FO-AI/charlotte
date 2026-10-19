@@ -29,6 +29,8 @@ import { useAuth } from '@/lib/auth/auth-context-msal';
 import {
   checkMultiPidFlag,
   checkNameMismatchFlag,
+  checkSupportingLooksLikeCheckFlag,
+  checkExtractionFailedFlag,
   checkIssueShortLabels,
   checkNeedsReview,
   checkStatus,
@@ -536,6 +538,26 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const selectedNameMismatchFlag = useMemo(
     () => (selectedCheck && !selectedCheck.verified ? checkNameMismatchFlag(selectedCheck) : null),
     [selectedCheck]
+  );
+  const selectedSupportingLooksLikeCheckFlag = useMemo(
+    () =>
+      selectedCheck && !selectedCheck.verified
+        ? checkSupportingLooksLikeCheckFlag(selectedCheck)
+        : null,
+    [selectedCheck]
+  );
+  const selectedExtractionFailedFlag = useMemo(
+    () =>
+      selectedCheck && !selectedCheck.verified ? checkExtractionFailedFlag(selectedCheck) : null,
+    [selectedCheck]
+  );
+  const selectedCheckLevelFlags = useMemo(
+    () =>
+      [
+        selectedSupportingLooksLikeCheckFlag,
+        selectedExtractionFailedFlag,
+      ].filter(Boolean),
+    [selectedSupportingLooksLikeCheckFlag, selectedExtractionFailedFlag]
   );
   const anyCheckHasBadPid = useMemo(() => checks.some((check) => hasNonBlankBadPid(check)), [checks]);
   const exportBlockedByBadPid = anyCheckHasBadPid;
@@ -1247,6 +1269,13 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                     )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {selectedCheckLevelFlags.length ? (
+                        <div className={`${SECTION_CARD} md:col-span-2 flex flex-wrap gap-2`}>
+                          {selectedCheckLevelFlags.map((flag) => (
+                            <FlagChip key={flag.type} flag={flag} />
+                          ))}
+                        </div>
+                      ) : null}
                       <CheckThumb
                         label="Front"
                         src={selectedCheck.front_image}

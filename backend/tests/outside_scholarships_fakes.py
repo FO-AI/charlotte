@@ -258,6 +258,9 @@ class FakeLLM:
                 student_name = page.student_name
             if page.aid_term:
                 aid_term = page.aid_term
+        supporting_has_amount_and_pid = any(
+            page.supporting_amount and page.supporting_pid for page in supporting
+        )
         fields = {
             "pid_list": backs[0].pids if backs else [],
             "amount": check_amount(check_number),
@@ -266,6 +269,7 @@ class FakeLLM:
             "provider": f"Provider {check_number}",
             "scholarship_name": scholarship_name,
             "aid_term": aid_term,
+            "supporting_has_amount_and_pid": supporting_has_amount_and_pid,
         }
         return self._reply(self.extraction_reply(check_number, fields))
 
