@@ -98,6 +98,23 @@ class OutsideScholarshipsDataLoader:
             return Decimal("0")
 
     @staticmethod
+    def _parse_well_formed_amount(value: Any) -> Optional[Decimal]:
+        if value is None:
+            return None
+
+        text = str(value).strip()
+        if not text:
+            return None
+
+        cleaned = text.replace("$", "").replace(",", "").replace(" ", "")
+        if not re.fullmatch(r"\d+(?:\.\d{1,2})?", cleaned):
+            return None
+        try:
+            return Decimal(cleaned)
+        except InvalidOperation:
+            return None
+
+    @staticmethod
     def _text(value: Any) -> str:
         if value is None:
             return ""
@@ -180,8 +197,8 @@ class OutsideScholarshipsDataLoader:
         cls,
         extracted: Dict[str, Any],
         reviewed: Dict[str, Any],
-        extracted_pids: Sequence[str],
-        reviewed_pids: Sequence[str],
+        extracted_pid_entries: Sequence[Dict[str, Any]],
+        reviewed_pid_entries: Sequence[Dict[str, Any]],
     ) -> Tuple[bool, str]:
         changes: List[str] = []
         field_labels = (
@@ -198,8 +215,8 @@ class OutsideScholarshipsDataLoader:
             if extracted_value != reviewed_value:
                 changes.append(f"{label}: {extracted_value or '(blank)'}")
 
-        extracted_set = [pid for pid in extracted_pids if pid]
-        reviewed_set = [pid for pid in reviewed_pids if pid]
+        extracted_set = [entry["pid"] for entry in extracted_pid_entries if entry.get("pid")]
+        reviewed_set = [entry["pid"] for entry in reviewed_pid_entries if entry.get("pid")]
         for pid in reviewed_set:
             if pid not in extracted_set:
                 changes.append(f"Added PID: {pid}")
@@ -207,8 +224,45 @@ class OutsideScholarshipsDataLoader:
             if pid not in reviewed_set:
                 changes.append(f"Removed PID: {pid}")
 
+        extracted_amounts = {
+            entry["pid"]: cls._text(entry.get("amount"))
+            for entry in extracted_pid_entries
+            if entry.get("pid")
+        }
+        reviewed_amounts = {
+            entry["pid"]: cls._text(entry.get("amount"))
+            for entry in reviewed_pid_entries
+            if entry.get("pid")
+        }
+        for pid in reviewed_set:
+            if extracted_amounts.get(pid, "") != reviewed_amounts.get(pid, ""):
+                changes.append(f"PID {pid} amount: {extracted_amounts.get(pid) or '(blank)'}")
+
         edited = bool(changes)
         return edited, "; ".join(changes)
+
+    @classmethod
+    def _row_amounts_for_reviewed_pids(
+        cls,
+        reviewed_pid_entries: Sequence[Dict[str, Any]],
+        check_amount: Decimal,
+    ) -> Optional[Dict[str, Decimal]]:
+        non_blank_entries = [entry for entry in reviewed_pid_entries if entry.get("pid")]
+        if len(non_blank_entries) <= 1:
+            return {}
+
+        amounts: Dict[str, Decimal] = {}
+        for entry in non_blank_entries:
+            pid = entry.get("pid")
+            amount = cls._parse_well_formed_amount(entry.get("amount"))
+            if pid is None or amount is None:
+                return None
+            amounts[pid] = amount
+
+        split_total = sum(amounts.values(), Decimal("0"))
+        if abs(split_total - check_amount) > Decimal("0.01"):
+            return None
+        return amounts
 
     def _expand_reviewed_rows(self, checks: List[Dict[str, Any]]) -> List[List[Any]]:
         rows: List[List[Any]] = []
@@ -219,7 +273,6 @@ class OutsideScholarshipsDataLoader:
             verified = bool(check.get("verified"))
 
             amount_decimal = self._to_decimal_amount(reviewed.get("amount"))
-            amount_value = float(amount_decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
             check_number = self._excel_safe_text(reviewed.get("check_number") or "")
             name = self._excel_safe_text(reviewed.get("name") or "")
             provider = self._excel_safe_text(reviewed.get("provider") or "")
@@ -256,13 +309,23 @@ class OutsideScholarshipsDataLoader:
             reviewed_pid_entries = normalized_reviewed or [{"pid": ""}]
 
             extracted_pids = [entry["pid"] for entry in extracted_pid_entries]
-            reviewed_pids = [entry["pid"] for entry in reviewed_pid_entries if entry.get("pid")]
 
-            edited, extracted_values = self._audit_diff(extracted, reviewed, extracted_pids, reviewed_pids)
+            split_amounts = self._row_amounts_for_reviewed_pids(reviewed_pid_entries, amount_decimal)
+
+            edited, extracted_values = self._audit_diff(
+                extracted,
+                reviewed,
+                extracted_pid_entries,
+                reviewed_pid_entries,
+            )
             extracted_values = self._excel_safe_text(extracted_values)
 
             for entry in reviewed_pid_entries:
                 pid_text = entry.get("pid") or ""
+                row_amount_decimal = (
+                    amount_decimal if split_amounts is None else split_amounts.get(pid_text, amount_decimal)
+                )
+                row_amount_value = float(row_amount_decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
                 # Server-resolved AD names only; never trust client-sent active_directory.
                 ad_name = self.active_directory_names.get(pid_text, "") if pid_text else ""
                 row_edited = edited
@@ -272,7 +335,7 @@ class OutsideScholarshipsDataLoader:
                 rows.append(
                     [
                         self._excel_safe_text(pid_text),
-                        amount_value,
+                        row_amount_value,
                         check_number,
                         name,
                         self._excel_safe_text(ad_name),
