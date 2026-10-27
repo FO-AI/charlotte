@@ -410,6 +410,42 @@ def test_first_extract_one_pid_equal_to_check_still_reads_roster(client, overrid
     assert _excel_amounts(export_response) == [30, 30, 40]
 
 
+def test_unreadable_roster_followup_keeps_first_extract(client, override_auth, app):
+    import json
+
+    def extraction_reply(check_number, fields):
+        fields = dict(fields)
+        fields["pid_list"] = ["730000001"]
+        fields["pid_amounts"] = [{"pid": "730000001", "amount": "100.00"}]
+        return json.dumps(fields)
+
+    response, llm = upload(
+        client,
+        app,
+        [FRONT, BACK, SUPPORTING],
+        back_pids={1001: ["730000001"]},
+        supporting_by_page={
+            3: {
+                "supporting_roster": [
+                    {"pid": "730000001", "amount": "100.00"},
+                    {"pid": "730000002", "amount": "25.00"},
+                ]
+            },
+        },
+        extraction_reply=extraction_reply,
+        roster_reply=lambda page, rows, call_count: "{}",
+    )
+    assert response.status_code == 200, response.text
+    assert llm.roster_calls == 1
+
+    check = preview_payload(response)["checks"][0]
+    assert check["check_number"] == "1001"
+    assert check["extraction_failed"] is False
+    assert [(entry["pid"], entry["amount"]) for entry in check["pids"]] == [
+        ("730000001", "100.00"),
+    ]
+
+
 def test_complete_supporting_pid_amount_split_reaches_preview_and_excel(client, override_auth, app):
     response, _ = upload(
         client,
@@ -498,6 +534,49 @@ def test_incomplete_roster_exports_full_check_amount(client, override_auth, app,
     assert _excel_amounts(export_response) == [100, 100, 100]
 
 
+def test_large_roster_trims_extra_rows_to_check_amount(client, override_auth, app):
+    student_names = [
+        "Student Alpha",
+        "Student Bravo",
+        "Student Charlie",
+        "Student Delta",
+        "Student Echo",
+        "Student Foxtrot",
+        "Student Golf",
+        "Student Hotel",
+        "Student India",
+        "Student Juliet",
+    ]
+    roster = [
+        {"pid": f"7300000{index:02d}", "amount": "10.00", "name": name}
+        for index, name in enumerate(student_names, start=1)
+    ]
+    roster.extend(
+        [
+            {"pid": "730000011", "amount": "7.50", "name": "Extra Student Eleven"},
+            {"pid": "730000012", "amount": "50.00", "name": "Extra Student Twelve"},
+        ]
+    )
+    response, llm = upload(
+        client,
+        app,
+        [FRONT, SUPPORTING],
+        back_pids={},
+        supporting_by_page={2: {"supporting_roster": roster}},
+    )
+    assert response.status_code == 200, response.text
+    assert llm.roster_calls == 3
+
+    check = preview_payload(response)["checks"][0]
+    assert [(entry["pid"], entry["amount"]) for entry in check["pids"]] == [
+        (f"7300000{index:02d}", "10.00") for index in range(1, 11)
+    ]
+
+    export_response = export_excel(client, app, preview_payload(response))
+    assert export_response.status_code == 200, export_response.text
+    assert _excel_amounts(export_response) == [10] * 10
+
+
 def test_roster_supporting_pages_are_read_one_page_at_a_time(client, override_auth, app):
     response, llm = upload(
         client,
@@ -534,40 +613,34 @@ def test_roster_retry_empty_page_when_another_page_had_rows(client, override_aut
     import json
 
     def roster_reply(page, rows, call_count):
-        if page.page_number == 3 and call_count == 1:
+        if call_count == 2:
             return json.dumps({"rows": []})
         return json.dumps({"rows": rows})
 
     response, llm = upload(
         client,
         app,
-        [FRONT, SUPPORTING, SUPPORTING],
+        [FRONT, SUPPORTING],
         back_pids={},
         supporting_by_page={
             2: {
                 "supporting_roster": [
-                    {"pid": "730000001", "amount": "60.00"},
-                    {"pid": "730000002", "amount": "40.00"},
-                ]
-            },
-            3: {
-                "supporting_roster": [
-                    {"pid": "730000003", "amount": "20.00"},
-                    {"pid": "730000004", "amount": "80.00"},
+                    {"pid": "730000001", "amount": "30.00"},
+                    {"pid": "730000002", "amount": "30.00"},
+                    {"pid": "730000003", "amount": "40.00"},
                 ]
             },
         },
         roster_reply=roster_reply,
     )
     assert response.status_code == 200, response.text
-    assert llm.roster_calls == 7
+    assert llm.roster_calls == 4
 
     check = preview_payload(response)["checks"][0]
     assert [(entry["pid"], entry["amount"]) for entry in check["pids"]] == [
-        ("730000001", "60.00"),
-        ("730000002", "40.00"),
-        ("730000003", "20.00"),
-        ("730000004", "80.00"),
+        ("730000001", "30.00"),
+        ("730000002", "30.00"),
+        ("730000003", "40.00"),
     ]
 
 
@@ -591,7 +664,7 @@ def test_roster_followup_ignores_supporting_letter_pages(client, override_auth, 
         },
     )
     assert response.status_code == 200, response.text
-    assert llm.roster_calls == 9
+    assert llm.roster_calls == 6
 
     check = preview_payload(response)["checks"][0]
     assert [(entry["pid"], entry["amount"]) for entry in check["pids"]] == [
