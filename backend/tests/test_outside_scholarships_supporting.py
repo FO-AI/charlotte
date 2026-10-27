@@ -301,6 +301,58 @@ def test_roster_supporting_pages_fill_pid_list_and_excel_rows(client, override_a
     ]
 
 
+def test_roster_drops_same_name_same_amount_ocr_duplicate(client, override_auth, app):
+    response, llm = upload(
+        client,
+        app,
+        [FRONT, SUPPORTING],
+        back_pids={},
+        supporting_by_page={
+            2: {
+                "supporting_roster": [
+                    {
+                        "pid": "730000001",
+                        "amount": "30.00",
+                        "name": "Test Student One",
+                        "scholarship_name": "Roster Award One",
+                    },
+                    {
+                        "pid": "730000002",
+                        "amount": "30.00",
+                        "name": "Test Student Two",
+                        "scholarship_name": "Roster Award Two",
+                    },
+                    {
+                        "pid": "730000003",
+                        "amount": "40.00",
+                        "name": "Test Student Three",
+                        "scholarship_name": "Roster Award Three",
+                    },
+                    {
+                        "pid": "730000013",
+                        "amount": "40.00",
+                        "name": "Test Student Three",
+                        "scholarship_name": "Roster Award Three",
+                    },
+                ]
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert llm.roster_calls == 3
+
+    check = preview_payload(response)["checks"][0]
+    assert [(entry["pid"], entry["amount"]) for entry in check["pids"]] == [
+        ("730000001", "30.00"),
+        ("730000002", "30.00"),
+        ("730000003", "40.00"),
+    ]
+
+    export_response = export_excel(client, app, preview_payload(response))
+    assert export_response.status_code == 200, export_response.text
+    assert _excel_amounts(export_response) == [30, 30, 40]
+
+
 def test_first_extract_one_pid_equal_to_check_still_reads_roster(client, override_auth, app):
     import json
 

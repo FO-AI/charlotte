@@ -722,15 +722,33 @@ def _labeled_image(label: str, png_bytes: bytes) -> List[Dict[str, Any]]:
     return [{"type": "text", "text": label}, _png_image_part(png_bytes)]
 
 
+def _roster_name_key(value: Any) -> Optional[str]:
+    raw = _clean_optional(value)
+    if raw is None:
+        return None
+    letters = re.sub(r"[^a-z]+", "", raw.casefold())
+    return letters or None
+
+
 def _roster_fields_from_rows(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     pid_list: List[str] = []
     pid_amounts: List[Dict[str, Any]] = []
-    seen = set()
+    seen_pids = set()
+    seen_name_amounts = set()
     for row in rows:
         pid = _normalize_pid(row.get("pid"))
-        if not pid or pid in seen:
+        if not pid or pid in seen_pids:
             continue
-        seen.add(pid)
+        name_key = _roster_name_key(row.get("name"))
+        amount = _decimal_amount(row.get("amount"))
+        # Overlapping crops can repeat a student with a 1–2 digit PID OCR miss. Same readable
+        # name and share is that duplicate, not a second student.
+        if name_key and amount is not None:
+            identity = (name_key, amount)
+            if identity in seen_name_amounts:
+                continue
+            seen_name_amounts.add(identity)
+        seen_pids.add(pid)
         pid_list.append(pid)
         entry: Dict[str, Any] = {"pid": pid, "amount": row.get("amount")}
         if "name" in row:
