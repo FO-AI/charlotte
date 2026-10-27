@@ -101,6 +101,8 @@ export function checkNameMismatchFlag(check) {
 /** Supporting page looks like its own check (amount + PID) — possible mis-group. */
 export function checkSupportingLooksLikeCheckFlag(check) {
   if (!check?.supporting_has_amount_and_pid) return null;
+  const splitStatus = checkAmountSplitStatus(check);
+  if (splitStatus.applies && splitStatus.complete && splitStatus.matches) return null;
   return {
     type: 'supporting_looks_like_check',
     shortLabel: 'Supporting looks like check',

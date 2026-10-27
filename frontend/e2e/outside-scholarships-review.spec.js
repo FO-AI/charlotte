@@ -324,6 +324,7 @@ test.describe('Outside scholarships review flow', () => {
         {
           ...preview.checks[0],
           provider: 'Example Foundation',
+          supporting_has_amount_and_pid: true,
           pids: [
             { pid: FIXED_PID, amount: '100.00', active_directory: { status: 'found', name: AD_NAME } },
             { pid: '987654321', amount: '150.00', active_directory: { status: 'found', name: AD_NAME } },
@@ -336,6 +337,7 @@ test.describe('Outside scholarships review flow', () => {
 
     await expect(page.getByText(/Split matches check total/i)).toBeVisible();
     await expect(page.getByText(/Amount not split/i)).toBeHidden();
+    await expect(page.getByText(/Supporting looks like check/i)).toBeHidden();
     await expect(page.getByText(/Multiple PIDs/i).first()).toBeVisible();
 
     await page.getByRole('button', { name: 'Mark verified' }).click();

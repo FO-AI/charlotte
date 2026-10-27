@@ -6,20 +6,27 @@ pages that follow it.
 
 Instructions:
 - Read every value directly from the images. Return null for a field you cannot read clearly; never guess.
-- `pid_list`, `amount`, and `check_number` come only from the check front and, when one was scanned, the
-  check back. A supporting page that repeats them, shows a different dollar amount, or shows an extra PID
-  does not change those three fields. Do not add a PID that appears only on a supporting page. A PID is a
-  UNC student ID of exactly 9 digits (for example 730123456). It often appears on the back, in the memo
-  line, or next to "PID", and a check can list several. Do not include the routing or account number from
-  the MICR line along the bottom of the check (the routing number is also 9 digits), the check number,
-  approval or authorization numbers, or any other number that is not a student PID.
+- `pid_list`, `amount`, and `check_number` usually come only from the check front and, when one was
+  scanned, the check back. A supporting page that repeats them, shows a different dollar amount, or
+  shows one extra PID in a letter does not change those fields; do not add that stray PID to pid_list.
+  Exception: when the check is payable to the university and the supporting pages contain a supporting
+  roster for this one check, with multiple rows that each designate a 9-digit PID and that student's
+  dollar share, put those roster PIDs in `pid_list`. The check amount and check number still come only
+  from the check. A PID is a UNC student ID of exactly 9 digits (for example 730123456). It often appears
+  on the back, in the memo line, or next to "PID", and a check can list several. Do not include the
+  routing or account number from the MICR line along the bottom of the check (the routing number is also
+  9 digits), the check number, approval or authorization numbers, or any other number that is not a
+  student PID.
 - `amount`: the check amount as a numeric string (for example "1250.00").
 - `pid_amounts`: per-student shares from supporting pages only. Return a list of objects such as
   {"pid": "730123456", "amount": "1000.00"} only when a supporting page clearly designates that
-  PID's individual dollar amount. Include only PIDs that already appear in `pid_list`; do not add a
-  PID that appears only on a supporting page. If supporting pages do not clearly assign every check
-  PID an amount, return only the clearly designated PID/amount pairs, or an empty list. Never invent
-  equal shares from boilerplate language such as "if not indicated, we will split evenly".
+  PID's individual dollar amount. Include PIDs from a supporting roster only when the roster enumerates
+  this check's students. Otherwise include only PIDs that already appear in `pid_list`, and do not add a
+  stray PID from a one-student letter. If supporting pages do not clearly assign every check PID an
+  amount, return only the clearly designated PID/amount pairs, or an empty list. When the roster gives
+  per-student names or scholarship names, include optional `name` and `scholarship_name` on that
+  pid_amounts object. Never invent equal shares from boilerplate language such as "if not indicated, we
+  will split evenly".
 - `check_number`: the check number printed on the check.
 - `name`: the student the scholarship is for. Use the student's name on the check when the check names
   one (memo, a "student" or "for" line, or "FBO"). These checks are often payable to the university. When
@@ -45,14 +52,14 @@ Instructions:
   Summer Session 2 -> "SS2"
   Do not derive an aid year from a date or from "2026-2027" on a page.
 - `supporting_has_amount_and_pid`: true when any supporting page shows both its own dollar amount
-  and a 9-digit student PID (even if those values must not change `amount` or `pid_list`). false
-  when there are no supporting pages, or when no supporting page has both. Use this only as a
-  review signal for a possible mis-grouped check; do not invent values for other fields from it.
+  and a 9-digit student PID. false when there are no supporting pages, or when no supporting page
+  has both. Use this only as a review signal for a possible mis-grouped check; do not invent values
+  for other fields from it.
 
 Return ONLY valid JSON with exactly these keys:
 {
   "pid_list": ["string", "..."],
-  "pid_amounts": [{"pid": "string", "amount": "string"}, "..."],
+  "pid_amounts": [{"pid": "string", "amount": "string", "name": "string or null", "scholarship_name": "string or null"}, "..."],
   "amount": "string or null",
   "check_number": "string or null",
   "name": "string or null",
@@ -61,6 +68,30 @@ Return ONLY valid JSON with exactly these keys:
   "aid_term": "F, S, F/S, SS1, SS2, or null",
   "supporting_has_amount_and_pid": false
 }
+"""
+
+
+EXTRACT_SUPPORTING_ROSTER_PROMPT = """Extract every student row
+You are reading one supporting page for one outside-scholarship check.
+
+Return ONLY valid JSON in this shape:
+{"rows": [{"pid": "...", "amount": "...", "name": "... or null", "scholarship_name": "... or null"}, ...]}
+
+Read EVERY student on this page. Do not summarize, combine, or skip students. If this image is a
+spreadsheet on its side, each student may be a column instead of a row; still return one object per
+student. Include only students. Skip header rows, subtotal rows, and total rows.
+
+For each readable student row, return:
+- `pid`: exactly 9 digits.
+- `amount`: that row's dollar share as a JSON string with cents, for example "142.80" or "625.00".
+- `name`: the student name when readable, otherwise null.
+- `scholarship_name`: that row's scholarship name when readable, otherwise null.
+
+The `pid` value MUST be a JSON string of exactly nine digits you can actually see, never a JSON number,
+never padded with leading zeros, and never a row index, dollar amount, or other column. If any digit in
+the PID is unreadable, omit the whole row. Do not guess or invent PIDs. If the amount is unreadable,
+still return that student row with "amount": null. If the page is a letter, a remittance stub, or any
+page that is not a student table, return {"rows": []}.
 """
 
 

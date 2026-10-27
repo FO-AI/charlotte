@@ -15,7 +15,7 @@ import threading
 import time
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import fitz
 import httpx
@@ -64,6 +64,7 @@ class ScriptedPage:
     aid_term: Optional[str] = None
     supporting_amount: Optional[str] = None
     supporting_pid: Optional[str] = None
+    supporting_roster: Optional[List[Dict[str, Any]]] = None
 
 
 def scripted_pages(sides, back_pids=None, supporting_by_page=None):
@@ -111,6 +112,18 @@ def build_pdf(pages):
                 page.insert_text((72, 156), f"Amount: ${scripted.supporting_amount}")
             if scripted.supporting_pid:
                 page.insert_text((72, 184), f"PID: {scripted.supporting_pid}")
+            if scripted.supporting_roster:
+                y = 184 if not scripted.supporting_pid else 212
+                for row in scripted.supporting_roster:
+                    y += 28
+                    parts = [str(row.get("pid") or "")]
+                    if row.get("amount"):
+                        parts.append(f"${row.get('amount')}")
+                    if row.get("name"):
+                        parts.append(str(row.get("name")))
+                    if row.get("scholarship_name"):
+                        parts.append(str(row.get("scholarship_name")))
+                    page.insert_text((72, y), " | ".join(parts))
             page.insert_text((72, 212), "Fall Spring Summer Session 1 Summer Session 2")
             page.insert_text((72, 240), "if not indicated, we will split evenly")
         else:
@@ -170,6 +183,7 @@ class FakeLLM:
         pages,
         classify_reply=None,
         extraction_reply=None,
+        roster_reply=None,
         classification_delay=lambda first_page: 0.0,
         classification_barrier=None,
         extraction_delay=lambda check_number: 0.0,
@@ -177,6 +191,7 @@ class FakeLLM:
         self.pages = pages
         self.classify_reply = classify_reply or self._scripted_sides
         self.extraction_reply = extraction_reply or (lambda check_number, fields: json.dumps(fields))
+        self.roster_reply = roster_reply
         self.classification_delay = classification_delay
         self.classification_barrier = classification_barrier
         self.extraction_delay = extraction_delay
@@ -185,11 +200,17 @@ class FakeLLM:
         self._lock = threading.Lock()
         self.classified_pages = []
         self.image_sizes_by_check = {}
+        self.roster_image_sizes = []
+        self.roster_pages = []
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     @property
     def extraction_calls(self):
         return len(self.image_sizes_by_check)
+
+    @property
+    def roster_calls(self):
+        return len(self.roster_image_sizes)
 
     def image_counts_by_check(self):
         return {check_number: len(sizes) for check_number, sizes in self.image_sizes_by_check.items()}
@@ -199,6 +220,7 @@ class FakeLLM:
 
     def _create(self, model, messages, response_format):
         content = messages[0]["content"]
+        first_text = content[0]["text"] if content and content[0]["type"] == "text" else ""
         page_labels = [
             part["text"]
             for part in content[1:]
@@ -206,6 +228,8 @@ class FakeLLM:
         ]
         if page_labels:
             return self._classify([int(label.removeprefix("Page ")) for label in page_labels])
+        if "Extract every student row" in first_text:
+            return self._extract_roster([part for part in content if part["type"] == "image_url"])
         return self._extract([part for part in content if part["type"] == "image_url"])
 
     def _classify(self, pages):
@@ -259,7 +283,8 @@ class FakeLLM:
             if page.aid_term:
                 aid_term = page.aid_term
         supporting_has_amount_and_pid = any(
-            page.supporting_amount and page.supporting_pid for page in supporting
+            (page.supporting_amount and page.supporting_pid) or page.supporting_roster
+            for page in supporting
         )
         fields = {
             "pid_list": backs[0].pids if backs else [],
@@ -271,14 +296,34 @@ class FakeLLM:
             "aid_term": aid_term,
             "supporting_has_amount_and_pid": supporting_has_amount_and_pid,
         }
-        pid_amounts = [
-            {"pid": page.supporting_pid, "amount": page.supporting_amount}
-            for page in supporting
-            if page.supporting_pid and page.supporting_amount
-        ]
+        pid_amounts = []
+        for page in supporting:
+            if page.supporting_pid and page.supporting_amount:
+                pid_amounts.append({"pid": page.supporting_pid, "amount": page.supporting_amount})
         if pid_amounts:
             fields["pid_amounts"] = pid_amounts
         return self._reply(self.extraction_reply(check_number, fields))
+
+    def _extract_roster(self, image_parts):
+        images = [base64.b64decode(part["image_url"]["url"].split(",", 1)[1]) for part in image_parts]
+        assert len(images) == 1, "roster extraction should read one supporting page at a time"
+        page = self.pages[_page_index_from_png(images[0])]
+        assert page.side == SUPPORTING, f"roster extraction received page {page.page_number}, a {page.side}"
+        with self._lock:
+            self.roster_image_sizes.append(_png_size(images[0]))
+            self.roster_pages.append(page.page_number)
+            call_count = self.roster_pages.count(page.page_number)
+        rows = []
+        for row in page.supporting_roster or []:
+            entry = {"pid": row.get("pid"), "amount": row.get("amount")}
+            if row.get("name"):
+                entry["name"] = row.get("name")
+            if row.get("scholarship_name"):
+                entry["scholarship_name"] = row.get("scholarship_name")
+            rows.append(entry)
+        if self.roster_reply:
+            return self._reply(self.roster_reply(page, rows, call_count))
+        return self._reply(json.dumps({"rows": rows}))
 
     @staticmethod
     def _reply(text):

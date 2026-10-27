@@ -326,6 +326,8 @@ class OutsideScholarshipsDataLoader:
                     amount_decimal if split_amounts is None else split_amounts.get(pid_text, amount_decimal)
                 )
                 row_amount_value = float(row_amount_decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+                row_name = self._excel_safe_text(entry.get("name") or name)
+                row_scholarship_name = self._excel_safe_text(entry.get("scholarship_name") or scholarship_name)
                 # Server-resolved AD names only; never trust client-sent active_directory.
                 ad_name = self.active_directory_names.get(pid_text, "") if pid_text else ""
                 row_edited = edited
@@ -337,12 +339,12 @@ class OutsideScholarshipsDataLoader:
                         self._excel_safe_text(pid_text),
                         row_amount_value,
                         check_number,
-                        name,
+                        row_name,
                         self._excel_safe_text(ad_name),
                         self.aid_year,
                         self._row_aid_term(reviewed),
                         provider,
-                        scholarship_name,
+                        row_scholarship_name,
                         "Yes" if row_edited else "",
                         "Yes" if verified else "",
                         extracted_values if row_edited else "",

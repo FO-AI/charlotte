@@ -35,6 +35,8 @@ def test_normalize_pid_keeps_only_nine_digits():
     assert _normalize_pid(_APPROVAL_NUMBER) is None
     assert _normalize_pid("12345678") is None
     assert _normalize_pid("1234567890") is None
+    assert _normalize_pid("000123456") is None
+    assert _normalize_pid("000000001") is None
     assert _normalize_pid(1380307) is None
     assert _normalize_pid(730123456) == _PID
 

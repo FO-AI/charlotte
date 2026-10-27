@@ -969,6 +969,8 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             pids: (original.pids || []).map((entry) => ({
               pid: entry.pid,
               amount: entry.amount,
+              name: entry.name,
+              scholarship_name: entry.scholarship_name,
               active_directory: entry.active_directory,
             })),
           },
@@ -982,6 +984,8 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
             pids: (check.pids || []).map((entry) => ({
               pid: entry.pid,
               amount: entry.amount,
+              name: entry.name,
+              scholarship_name: entry.scholarship_name,
               active_directory: entry.active_directory,
             })),
           },
