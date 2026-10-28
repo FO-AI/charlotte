@@ -211,13 +211,13 @@ class OutsideScholarshipService:
                 continue
             pid_list = check.get("pid_list") if isinstance(check.get("pid_list"), list) else []
             pid_amounts = check.get("pid_amounts") if isinstance(check.get("pid_amounts"), list) else []
-            amount_by_pid = {}
+            pid_amount_by_pid = {}
             for entry in pid_amounts:
                 if not isinstance(entry, dict):
                     continue
                 pid = str(entry.get("pid") or "").strip()
                 if pid:
-                    amount_by_pid[pid] = entry.get("amount")
+                    pid_amount_by_pid[pid] = entry
             pids = []
             seen_pids = set()
             for pid in pid_list:
@@ -243,10 +243,13 @@ class OutsideScholarshipService:
                     if pid_digits in seen_pids:
                         continue
                     seen_pids.add(pid_digits)
+                    pid_amount = pid_amount_by_pid.get(pid_digits) or {}
                     pids.append(
                         {
                             "pid": pid_digits,
-                            "amount": amount_by_pid.get(pid_digits),
+                            "amount": pid_amount.get("amount"),
+                            "name": pid_amount.get("name"),
+                            "scholarship_name": pid_amount.get("scholarship_name"),
                             "active_directory": ad_by_pid.get(
                                 pid_digits, {"status": "not_found", "name": None}
                             ),

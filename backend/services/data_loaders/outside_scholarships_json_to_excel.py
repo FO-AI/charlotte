@@ -275,8 +275,12 @@ class OutsideScholarshipsDataLoader:
             amount_decimal = self._to_decimal_amount(reviewed.get("amount"))
             check_number = self._excel_safe_text(reviewed.get("check_number") or "")
             name = self._excel_safe_text(reviewed.get("name") or "")
+            extracted_name = self._excel_safe_text(extracted.get("name") or "")
             provider = self._excel_safe_text(reviewed.get("provider") or "")
             scholarship_name = self._excel_safe_text(reviewed.get("scholarship_name") or "")
+            extracted_scholarship_name = self._excel_safe_text(extracted.get("scholarship_name") or "")
+            check_level_name_edited = name != extracted_name
+            check_level_scholarship_edited = scholarship_name != extracted_scholarship_name
 
             reviewed_pid_entries = self._pid_entries(reviewed, "pids")
             if not reviewed_pid_entries:
@@ -326,6 +330,14 @@ class OutsideScholarshipsDataLoader:
                     amount_decimal if split_amounts is None else split_amounts.get(pid_text, amount_decimal)
                 )
                 row_amount_value = float(row_amount_decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+                if check_level_name_edited:
+                    row_name = name
+                else:
+                    row_name = self._excel_safe_text(entry.get("name") or name)
+                if check_level_scholarship_edited:
+                    row_scholarship_name = scholarship_name
+                else:
+                    row_scholarship_name = self._excel_safe_text(entry.get("scholarship_name") or scholarship_name)
                 # Server-resolved AD names only; never trust client-sent active_directory.
                 ad_name = self.active_directory_names.get(pid_text, "") if pid_text else ""
                 row_edited = edited
@@ -337,12 +349,12 @@ class OutsideScholarshipsDataLoader:
                         self._excel_safe_text(pid_text),
                         row_amount_value,
                         check_number,
-                        name,
+                        row_name,
                         self._excel_safe_text(ad_name),
                         self.aid_year,
                         self._row_aid_term(reviewed),
                         provider,
-                        scholarship_name,
+                        row_scholarship_name,
                         "Yes" if row_edited else "",
                         "Yes" if verified else "",
                         extracted_values if row_edited else "",

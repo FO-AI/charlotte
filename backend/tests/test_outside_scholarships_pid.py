@@ -35,6 +35,8 @@ def test_normalize_pid_keeps_only_nine_digits():
     assert _normalize_pid(_APPROVAL_NUMBER) is None
     assert _normalize_pid("12345678") is None
     assert _normalize_pid("1234567890") is None
+    assert _normalize_pid("000123456") is None
+    assert _normalize_pid("000000001") is None
     assert _normalize_pid(1380307) is None
     assert _normalize_pid(730123456) == _PID
 
@@ -120,6 +122,76 @@ def test_excel_keeps_multiple_nine_digit_pids_and_full_amount_when_split_missing
 
     assert [row[0] for row in rows] == [_PID, _SECOND_PID, ""]
     assert [row[1] for row in rows] == [50.0, 50.0, 25.0]
+
+
+def test_excel_uses_reviewed_check_level_name_and_scholarship_for_every_pid_when_edited():
+    loader = OutsideScholarshipsDataLoader(aid_year="2027", aid_term="F")
+    rows = loader._expand_reviewed_rows(
+        [
+            {
+                "reviewed": {
+                    "pids": [
+                        {"pid": _PID, "name": "Roster Name One", "scholarship_name": "Roster Award One"},
+                        {"pid": _SECOND_PID, "name": "Roster Name Two", "scholarship_name": "Roster Award Two"},
+                    ],
+                    "amount": "100.00",
+                    "check_number": "1001",
+                    "name": "Reviewed Payee",
+                    "provider": "Provider",
+                    "scholarship_name": "Reviewed Scholarship",
+                },
+                "extracted": {
+                    "pids": [
+                        {"pid": _PID, "name": "Roster Name One", "scholarship_name": "Roster Award One"},
+                        {"pid": _SECOND_PID, "name": "Roster Name Two", "scholarship_name": "Roster Award Two"},
+                    ],
+                    "amount": "100.00",
+                    "check_number": "1001",
+                    "name": "Extracted Payee",
+                    "provider": "Provider",
+                    "scholarship_name": "Extracted Scholarship",
+                },
+            }
+        ]
+    )
+
+    assert [row[3] for row in rows] == ["Reviewed Payee", "Reviewed Payee"]
+    assert [row[8] for row in rows] == ["Reviewed Scholarship", "Reviewed Scholarship"]
+
+
+def test_excel_uses_roster_name_and_scholarship_when_check_level_values_are_unedited():
+    loader = OutsideScholarshipsDataLoader(aid_year="2027", aid_term="F")
+    rows = loader._expand_reviewed_rows(
+        [
+            {
+                "reviewed": {
+                    "pids": [
+                        {"pid": _PID, "name": "Roster Name One", "scholarship_name": "Roster Award One"},
+                        {"pid": _SECOND_PID, "name": "Roster Name Two", "scholarship_name": "Roster Award Two"},
+                    ],
+                    "amount": "100.00",
+                    "check_number": "1001",
+                    "name": "Extracted Payee",
+                    "provider": "Provider",
+                    "scholarship_name": "Extracted Scholarship",
+                },
+                "extracted": {
+                    "pids": [
+                        {"pid": _PID, "name": "Roster Name One", "scholarship_name": "Roster Award One"},
+                        {"pid": _SECOND_PID, "name": "Roster Name Two", "scholarship_name": "Roster Award Two"},
+                    ],
+                    "amount": "100.00",
+                    "check_number": "1001",
+                    "name": "Extracted Payee",
+                    "provider": "Provider",
+                    "scholarship_name": "Extracted Scholarship",
+                },
+            }
+        ]
+    )
+
+    assert [row[3] for row in rows] == ["Roster Name One", "Roster Name Two"]
+    assert [row[8] for row in rows] == ["Roster Award One", "Roster Award Two"]
 
 
 def test_build_reviewed_excel_rejects_non_nine_digit_reviewed_pid():
