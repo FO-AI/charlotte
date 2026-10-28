@@ -767,85 +767,9 @@ def _roster_amount_count(rows: Sequence[Dict[str, Any]]) -> int:
     )
 
 
-def _amount_cents(value: Any) -> Optional[int]:
-    amount = _decimal_amount(value)
-    if amount is None:
-        return None
-    return int(amount * 100)
-
-
 def _roster_page_from_label(label: str) -> Optional[str]:
     match = re.match(r"^(Supporting page \d+)\b", label)
     return match.group(1) if match else None
-
-
-def _trim_large_roster_to_check_amount(
-    roster_fields: Dict[str, Any],
-    check_amount: Any,
-) -> Dict[str, Any]:
-    pid_list = list(roster_fields.get("pid_list") or [])
-    pid_amounts = list(roster_fields.get("pid_amounts") or [])
-    if len(pid_list) < 10 or len(pid_amounts) != len(pid_list):
-        return roster_fields
-
-    check_cents = _amount_cents(check_amount)
-    if check_cents is None:
-        return roster_fields
-
-    amount_counts: Dict[int, int] = {}
-    amounts_by_pid: Dict[str, int] = {}
-    total_cents = 0
-    for entry in pid_amounts:
-        pid = _normalize_pid(entry.get("pid"))
-        amount_cents = _amount_cents(entry.get("amount"))
-        if pid is None or amount_cents is None or pid in amounts_by_pid:
-            return roster_fields
-        amounts_by_pid[pid] = amount_cents
-        amount_counts[amount_cents] = amount_counts.get(amount_cents, 0) + 1
-        total_cents += amount_cents
-    if set(amounts_by_pid) != set(pid_list) or total_cents - check_cents <= 1:
-        return roster_fields
-
-    # DP state is total cents -> (rows kept, amount-count choices). Amounts are compressed so
-    # duplicate shares are bounded by their observed counts.
-    states: Dict[int, Tuple[int, Dict[int, int]]] = {0: (0, {})}
-    for amount_cents, available_count in amount_counts.items():
-        next_states = dict(states)
-        for existing_total, (existing_rows, existing_choices) in states.items():
-            for count in range(1, available_count + 1):
-                new_total = existing_total + amount_cents * count
-                if new_total > check_cents + 1:
-                    break
-                new_rows = existing_rows + count
-                current = next_states.get(new_total)
-                if current is not None and current[0] >= new_rows:
-                    continue
-                next_choices = dict(existing_choices)
-                next_choices[amount_cents] = next_choices.get(amount_cents, 0) + count
-                next_states[new_total] = (new_rows, next_choices)
-        states = next_states
-
-    possible_totals = [total for total in (check_cents, check_cents - 1, check_cents + 1) if total in states]
-    if not possible_totals:
-        return roster_fields
-    best_total = max(possible_totals, key=lambda total: (states[total][0], -abs(total - check_cents)))
-    chosen_counts = dict(states[best_total][1])
-    if sum(chosen_counts.values()) == len(pid_list):
-        return roster_fields
-
-    trimmed_pids: List[str] = []
-    trimmed_amounts: List[Dict[str, Any]] = []
-    for entry in pid_amounts:
-        amount_cents = _amount_cents(entry.get("amount"))
-        if amount_cents is None or chosen_counts.get(amount_cents, 0) <= 0:
-            continue
-        chosen_counts[amount_cents] -= 1
-        pid = _normalize_pid(entry.get("pid"))
-        if pid is None:
-            continue
-        trimmed_pids.append(pid)
-        trimmed_amounts.append(entry)
-    return {"pid_list": trimmed_pids, "pid_amounts": trimmed_amounts}
 
 
 def _extract_supporting_roster_rows(
@@ -996,7 +920,6 @@ def _extract_check_fields(
         else:
             roster_fields = _roster_fields_from_rows(roster_rows)
             if len(roster_fields["pid_list"]) >= 2:
-                roster_fields = _trim_large_roster_to_check_amount(roster_fields, check_fields["amount"])
                 check_fields = _normalize_check_fields({**check_fields, **roster_fields})
     return check_fields
 

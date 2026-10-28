@@ -534,7 +534,7 @@ def test_incomplete_roster_exports_full_check_amount(client, override_auth, app,
     assert _excel_amounts(export_response) == [100, 100, 100]
 
 
-def test_large_roster_trims_extra_rows_to_check_amount(client, override_auth, app):
+def test_large_roster_keeps_extra_rows_and_exports_full_check_amount(client, override_auth, app):
     student_names = [
         "Student Alpha",
         "Student Bravo",
@@ -553,8 +553,8 @@ def test_large_roster_trims_extra_rows_to_check_amount(client, override_auth, ap
     ]
     roster.extend(
         [
-            {"pid": "730000011", "amount": "7.50", "name": "Extra Student Eleven"},
-            {"pid": "730000012", "amount": "50.00", "name": "Extra Student Twelve"},
+            {"pid": "730000901", "amount": "7.50", "name": "Extra Student Eleven"},
+            {"pid": "730000902", "amount": "50.00", "name": "Extra Student Twelve"},
         ]
     )
     response, llm = upload(
@@ -569,12 +569,59 @@ def test_large_roster_trims_extra_rows_to_check_amount(client, override_auth, ap
 
     check = preview_payload(response)["checks"][0]
     assert [(entry["pid"], entry["amount"]) for entry in check["pids"]] == [
-        (f"7300000{index:02d}", "10.00") for index in range(1, 11)
+        *[(f"7300000{index:02d}", "10.00") for index in range(1, 11)],
+        ("730000901", "7.50"),
+        ("730000902", "50.00"),
     ]
 
     export_response = export_excel(client, app, preview_payload(response))
     assert export_response.status_code == 200, export_response.text
-    assert _excel_amounts(export_response) == [10] * 10
+    assert _excel_amounts(export_response) == [100] * 12
+
+
+def test_equal_share_extra_row_is_not_dropped_to_force_check_total(client, override_auth, app):
+    student_names = [
+        "Student Alpha",
+        "Student Bravo",
+        "Student Charlie",
+        "Student Delta",
+        "Student Echo",
+        "Student Foxtrot",
+        "Student Golf",
+        "Student Hotel",
+        "Student India",
+        "Student Juliet",
+    ]
+    roster = [
+        {"pid": "730000099", "amount": "10.00", "name": "Extra Student First"},
+        *[
+            {
+                "pid": f"7300000{index:02d}",
+                "amount": "10.00",
+                "name": name,
+            }
+            for index, name in enumerate(student_names, start=1)
+        ],
+    ]
+    response, llm = upload(
+        client,
+        app,
+        [FRONT, SUPPORTING],
+        back_pids={},
+        supporting_by_page={2: {"supporting_roster": roster}},
+    )
+    assert response.status_code == 200, response.text
+    assert llm.roster_calls == 3
+
+    check = preview_payload(response)["checks"][0]
+    assert [(entry["pid"], entry["amount"]) for entry in check["pids"]] == [
+        ("730000099", "10.00"),
+        *[(f"7300000{index:02d}", "10.00") for index in range(1, 11)],
+    ]
+
+    export_response = export_excel(client, app, preview_payload(response))
+    assert export_response.status_code == 200, export_response.text
+    assert _excel_amounts(export_response) == [100] * 11
 
 
 def test_roster_supporting_pages_are_read_one_page_at_a_time(client, override_auth, app):
