@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, Body
+from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, HTTPException, Form, Body
+from fastapi.responses import JSONResponse
 from typing import Any, Dict, List, Optional
 from utils.auth import get_bearer_token
 from utils.rba import check_banking_or_admin_permissions
@@ -7,6 +8,16 @@ from services.banking import BankingUploadService
 from services.azure_services import AzureClient, GraphUserDirectory
 from api.dependencies import get_azure_client, get_graph_user_directory
 from services.banking import OutsideScholarshipService
+from services.banking.outside_scholarships.jobs import (
+    STATUS_ERROR,
+    STATUS_PROCESSING,
+    can_accept_job,
+    complete_job,
+    create_job,
+    fail_job,
+    get_job,
+    job_owner,
+)
 from services.data_loaders.outside_scholarships_json_to_excel import (
     ALLOWED_AID_TERMS,
     DEFAULT_AID_TERM,
@@ -29,8 +40,34 @@ async def upload_banking_files(
     return await upload_service.upload_and_analyze_files(files)
 
 
+async def _run_outside_scholarships_job(
+    job_id: str,
+    service: OutsideScholarshipService,
+    pdf_bytes: bytes,
+    filename: str,
+    graph_access_token: str,
+    aid_year: Optional[str],
+    aid_term: str,
+) -> None:
+    try:
+        preview = await service.analyze_pdf_bytes(
+            pdf_bytes,
+            filename,
+            graph_access_token,
+            aid_year=aid_year,
+            aid_term=aid_term,
+        )
+        complete_job(job_id, preview)
+    except HTTPException as exc:
+        fail_job(job_id, exc.detail, exc.status_code)
+    except Exception:
+        logger.exception("outside_scholarships.job: extraction failed job_id=%s", job_id)
+        fail_job(job_id, "Failed to process outside scholarship PDF.", 500)
+
+
 @router.post("/api/banking/outside-scholarships")
 async def outside_scholarships(
+    background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     aid_year: Optional[str] = Form(None),
     aid_term: str = Form("F"),
@@ -39,9 +76,11 @@ async def outside_scholarships(
     user_directory: GraphUserDirectory = Depends(get_graph_user_directory),
     graph_access_token: str = Depends(get_bearer_token),
 ):
-    """Extract outside-scholarship checks and return a review preview (JSON).
+    """Accept a check-batch PDF and return a job id. Poll GET .../jobs/{id} for the preview.
 
-    Does not download Excel. The client opens the review UI, then calls export.
+    Azure App Service closes requests around 240s. Extraction of a large scanned
+    batch often exceeds that if it runs inside this POST, so work continues after
+    the upload response.
     """
     if not files:
         raise HTTPException(status_code=400, detail="No file uploaded.")
@@ -56,13 +95,42 @@ async def outside_scholarships(
         allowed = ", ".join(sorted(ALLOWED_AID_TERMS))
         raise HTTPException(status_code=400, detail=f"Aid term must be one of: {allowed}.")
 
+    if not can_accept_job():
+        raise HTTPException(
+            status_code=429,
+            detail="Another scholarship batch is still extracting. Wait for it to finish, then upload again.",
+        )
+
     outside_scholarship_service = OutsideScholarshipService(azure_client, user_directory)
-    return await outside_scholarship_service.upload_and_analyze_files(
-        files,
-        graph_access_token=graph_access_token,
-        aid_year=aid_year,
-        aid_term=normalized_term,
+    filename, pdf_bytes = await outside_scholarship_service.read_single_pdf(files)
+    job_id = create_job(job_owner(user))
+    background_tasks.add_task(
+        _run_outside_scholarships_job,
+        job_id,
+        outside_scholarship_service,
+        pdf_bytes,
+        filename,
+        graph_access_token,
+        aid_year,
+        normalized_term,
     )
+    return JSONResponse(status_code=202, content={"job_id": job_id, "status": STATUS_PROCESSING})
+
+
+@router.get("/api/banking/outside-scholarships/jobs/{job_id}")
+async def outside_scholarships_job(
+    job_id: str,
+    user: Dict = Depends(check_banking_or_admin_permissions),
+):
+    """Return the review preview when extraction finishes, or 400/500 if it failed."""
+    job = get_job(job_id)
+    if not job or job["owner"] != job_owner(user):
+        raise HTTPException(status_code=404, detail="Upload job not found.")
+    if job["status"] == STATUS_PROCESSING:
+        return {"job_id": job_id, "status": STATUS_PROCESSING}
+    if job["status"] == STATUS_ERROR:
+        raise HTTPException(status_code=job.get("status_code") or 500, detail=job.get("detail"))
+    return job["preview"]
 
 
 @router.post("/api/banking/outside-scholarships/active-directory-names")
