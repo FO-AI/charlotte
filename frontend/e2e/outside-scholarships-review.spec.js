@@ -46,6 +46,18 @@ async function stubReviewApis(page, previewBody, options = {}) {
     });
   });
 
+  const jobId = 'e2e-outside-scholarships-job';
+  await page.route('**/api/banking/outside-scholarships/jobs/**', async (route) => {
+    if (options.onJobPoll) {
+      options.onJobPoll();
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(previewBody),
+    });
+  });
+
   await page.route('**/api/banking/outside-scholarships', async (route) => {
     if (route.request().method() !== 'POST') {
       await route.continue();
@@ -53,14 +65,14 @@ async function stubReviewApis(page, previewBody, options = {}) {
     }
     // Exclude nested routes handled above
     const url = route.request().url();
-    if (url.includes('active-directory-names') || url.includes('/export')) {
+    if (url.includes('active-directory-names') || url.includes('/export') || url.includes('/jobs/')) {
       await route.continue();
       return;
     }
     await route.fulfill({
-      status: 200,
+      status: 202,
       contentType: 'application/json',
-      body: JSON.stringify(previewBody),
+      body: JSON.stringify({ job_id: jobId, status: 'processing' }),
     });
   });
 }
@@ -88,6 +100,13 @@ async function uploadAndOpenReview(page) {
 }
 
 test.describe('Outside scholarships review flow', () => {
+  test('upload polls the extraction job until the preview is ready', async ({ page }) => {
+    let polls = 0;
+    await stubReviewApis(page, preview, { onJobPoll: () => { polls += 1; } });
+    await uploadAndOpenReview(page);
+    expect(polls).toBeGreaterThan(0);
+  });
+
   test('upload → fix PID → AD name → export', async ({ page }) => {
     await stubReviewApis(page, preview);
     await uploadAndOpenReview(page);

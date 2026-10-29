@@ -139,12 +139,15 @@ def test_fifty_check_upload_timing(client, override_auth, app, monkeypatch, scan
     llm = _LatencyLLM()
     app.dependency_overrides[get_azure_client] = lambda: SimpleNamespace(llm=llm)
 
+    from outside_scholarships_fakes import await_job
+
     upload_start = time.perf_counter()
     response = client.post(
         _ROUTE,
         files={"files": ("checks.pdf", scan_like_pdf, "application/pdf")},
         data={"aid_term": "F"},
     )
+    response = await_job(client, response)
     upload_end = time.perf_counter()
 
     assert response.status_code == 200, response.text

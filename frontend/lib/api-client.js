@@ -64,40 +64,114 @@ export class APIClient {
     }
   }
   async uploadOutsideScholarshipsPdf(file, options = {}) {
-    try {
-      const { aidYear, aidTerm } = options;
-      const authHeaders = await this.getAuthHeaders();
-      const formData = new FormData();
-      formData.append("files", file);
-      if (aidYear) {
-        formData.append("aid_year", String(aidYear));
-      }
-      if (aidTerm) {
-        formData.append("aid_term", String(aidTerm));
-      }
+    const { aidYear, aidTerm } = options;
+    const authHeaders = await this.getAuthHeaders();
+    const formData = new FormData();
+    formData.append("files", file);
+    if (aidYear) {
+      formData.append("aid_year", String(aidYear));
+    }
+    if (aidTerm) {
+      formData.append("aid_term", String(aidTerm));
+    }
 
-      const response = await fetch(API_ENDPOINTS.outsideScholarships, {
+    let response;
+    try {
+      response = await fetch(API_ENDPOINTS.outsideScholarships, {
         method: "POST",
         headers: {
           ...authHeaders,
         },
         body: formData,
       });
+    } catch (error) {
+      console.error("Upload outside scholarships PDF failed:", error);
+      throw this._outsideScholarshipsUploadError(error);
+    }
+
+    if (response.status === 401) {
+      throw new Error('Authentication required');
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || `API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (Array.isArray(data?.checks)) {
+      return data;
+    }
+    const jobId = data?.job_id;
+    if (!jobId) {
+      throw new Error('Unexpected response from extraction.');
+    }
+    return await this._pollOutsideScholarshipsJob(jobId);
+  }
+
+  async _pollOutsideScholarshipsJob(jobId) {
+    const url = `${API_ENDPOINTS.outsideScholarships}/jobs/${encodeURIComponent(jobId)}`;
+    const deadline = Date.now() + 30 * 60 * 1000;
+    let networkFailures = 0;
+
+    while (Date.now() < deadline) {
+      const authHeaders = await this.getAuthHeaders();
+      let response;
+      try {
+        response = await fetch(url, {
+          headers: {
+            ...authHeaders,
+          },
+        });
+        networkFailures = 0;
+      } catch (error) {
+        networkFailures += 1;
+        console.error("Outside scholarships job poll failed:", error);
+        if (networkFailures >= 4) {
+          throw new Error(
+            'Lost connection while waiting for extraction. The file was accepted; wait a moment and try again if the review screen does not appear.'
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        continue;
+      }
 
       if (response.status === 401) {
         throw new Error('Authentication required');
       }
-
+      if (response.status === 404) {
+        throw new Error('The upload job was lost (the server may have restarted). Please upload again.');
+      }
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.detail || `API error: ${response.status}`);
       }
 
-      return await response.json();
-    } catch (error) {
-      console.error("Upload outside scholarships PDF failed:", error);
-      throw error;
+      const data = await response.json();
+      if (Array.isArray(data?.checks)) {
+        return data;
+      }
+      if (data?.status && data.status !== 'processing') {
+        throw new Error(data.detail || 'Upload failed. Please try again.');
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
+
+    throw new Error('Extraction is taking too long. Please try a smaller batch.');
+  }
+
+  _outsideScholarshipsUploadError(error) {
+    const message = error?.message || '';
+    if (
+      error instanceof TypeError ||
+      /failed to fetch|networkerror|load failed|network error/i.test(message)
+    ) {
+      return new Error(
+        'The connection dropped while uploading. Azure App Service closes requests that stay open longer than about 4 minutes, which a large scanned batch can exceed during the upload itself. Split the PDF into smaller groups of checks, keeping each check\'s front, back, and letters together.'
+      );
+    }
+    return error instanceof Error ? error : new Error(message || 'Upload failed. Please try again.');
   }
 
   async lookupOutsideScholarshipActiveDirectoryNames(pids) {

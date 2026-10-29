@@ -33,14 +33,8 @@ class OutsideScholarshipService:
         self.user_directory = user_directory
         self._graph = build_graph()
 
-    async def upload_and_analyze_files(
-        self,
-        files: List[UploadFile],
-        graph_access_token: str,
-        aid_year: str | None = None,
-        aid_term: str | None = None,
-    ) -> Dict[str, Any]:
-        """Accept one PDF, run extraction, look up AD names, and return a review preview."""
+    async def read_single_pdf(self, files: List[UploadFile]) -> tuple[str, bytes]:
+        """Validate and read the uploaded PDF. Extraction happens in analyze_pdf_bytes."""
         if len(files) != 1:
             raise HTTPException(status_code=400, detail="Upload exactly one PDF file.")
 
@@ -60,56 +54,83 @@ class OutsideScholarshipService:
                     status_code=400,
                     detail=f"File size too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)}MB).",
                 )
-
-            try:
-                loader = OutsideScholarshipsDataLoader(aid_year=aid_year, aid_term=aid_term)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-            initial_state = {
-                "pdf_folder": None,
-                "pdf_files_bytes": [pdf_bytes],
-                "check_pairs": [],
-                "check_results": [],
-                "final_payload": {},
-            }
-            config = {
-                "max_concurrency": MAX_CONCURRENT_CHECKS,
-                "configurable": {"llm": self.azure_client.llm},
-            }
-
-            logger.info("outside_scholarships.service: starting extraction for %s", filename)
-            try:
-                result = await asyncio.to_thread(self._graph.invoke, initial_state, config)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            except Exception as exc:
-                logger.exception("outside_scholarships.service: extraction failed")
-                raise HTTPException(status_code=500, detail="Failed to process outside scholarship PDF.") from exc
-
-            payload = result.get("final_payload", {"checks": []})
-            self._log_extracted_checks(payload)
-            ad_by_pid = await lookup_active_directory_names(
-                self.user_directory, payload.get("checks", []), graph_access_token
-            )
-            preview = self._build_preview_payload(
-                filename=filename,
-                aid_year=loader.aid_year,
-                aid_term=loader.aid_term,
-                checks=payload.get("checks", []),
-                ad_by_pid=ad_by_pid,
-            )
-            preview_checks = preview.get("checks", [])
-            # Size is dominated by JPEG data URLs on front_image/back_image.
-            preview_image_chars = self._preview_image_char_count(preview_checks)
-            logger.info(
-                "outside_scholarships.service: preview ready checks=%s preview_image_chars≈%s",
-                len(preview_checks),
-                preview_image_chars,
-            )
-            return preview
+            return filename, pdf_bytes
         finally:
             await upload.close()
+
+    async def analyze_pdf_bytes(
+        self,
+        pdf_bytes: bytes,
+        filename: str,
+        graph_access_token: str,
+        aid_year: str | None = None,
+        aid_term: str | None = None,
+    ) -> Dict[str, Any]:
+        """Run extraction and AD lookup. Safe to call after the upload HTTP response is sent."""
+        try:
+            loader = OutsideScholarshipsDataLoader(aid_year=aid_year, aid_term=aid_term)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        initial_state = {
+            "pdf_folder": None,
+            "pdf_files_bytes": [pdf_bytes],
+            "check_pairs": [],
+            "check_results": [],
+            "final_payload": {},
+        }
+        config = {
+            "max_concurrency": MAX_CONCURRENT_CHECKS,
+            "configurable": {"llm": self.azure_client.llm},
+        }
+
+        logger.info("outside_scholarships.service: starting extraction for %s", filename)
+        try:
+            result = await asyncio.to_thread(self._graph.invoke, initial_state, config)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("outside_scholarships.service: extraction failed")
+            raise HTTPException(status_code=500, detail="Failed to process outside scholarship PDF.") from exc
+
+        payload = result.get("final_payload", {"checks": []})
+        self._log_extracted_checks(payload)
+        ad_by_pid = await lookup_active_directory_names(
+            self.user_directory, payload.get("checks", []), graph_access_token
+        )
+        preview = self._build_preview_payload(
+            filename=filename,
+            aid_year=loader.aid_year,
+            aid_term=loader.aid_term,
+            checks=payload.get("checks", []),
+            ad_by_pid=ad_by_pid,
+        )
+        preview_checks = preview.get("checks", [])
+        # Size is dominated by JPEG data URLs on front_image/back_image.
+        preview_image_chars = self._preview_image_char_count(preview_checks)
+        logger.info(
+            "outside_scholarships.service: preview ready checks=%s preview_image_chars≈%s",
+            len(preview_checks),
+            preview_image_chars,
+        )
+        return preview
+
+    async def upload_and_analyze_files(
+        self,
+        files: List[UploadFile],
+        graph_access_token: str,
+        aid_year: str | None = None,
+        aid_term: str | None = None,
+    ) -> Dict[str, Any]:
+        """Accept one PDF, run extraction, look up AD names, and return a review preview."""
+        filename, pdf_bytes = await self.read_single_pdf(files)
+        return await self.analyze_pdf_bytes(
+            pdf_bytes,
+            filename,
+            graph_access_token,
+            aid_year=aid_year,
+            aid_term=aid_term,
+        )
 
     async def lookup_active_directory_for_pids(
         self,

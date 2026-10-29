@@ -26,6 +26,7 @@ FRONT = "front"
 BACK = "back"
 SUPPORTING = "supporting"
 ROUTE = "/api/banking/outside-scholarships"
+JOB_ROUTE = "/api/banking/outside-scholarships/jobs"
 EXPORT_ROUTE = "/api/banking/outside-scholarships/export"
 LOOKUP_ROUTE = "/api/banking/outside-scholarships/active-directory-names"
 FIRST_DATA_ROW = 6
@@ -407,7 +408,30 @@ def upload(
         files={"files": ("checks.pdf", build_pdf(pages), "application/pdf")},
         data=data,
     )
-    return response, llm
+    return await_job(client, response), llm
+
+
+def await_job(client, response, attempts=200):
+    """Turn a 202 job-id POST into the finished preview (or error) GET response.
+
+    TestClient runs FastAPI background tasks before POST returns, so the first GET
+    is usually already complete. Loop in case a future Starlette version does not.
+    """
+    if response.status_code != 202:
+        return response
+    job_id = response.json().get("job_id")
+    assert job_id, response.text
+    last = response
+    for _ in range(attempts):
+        last = client.get(f"{JOB_ROUTE}/{job_id}")
+        if last.status_code != 200:
+            return last
+        body = last.json()
+        if isinstance(body, dict) and body.get("status") == "processing":
+            time.sleep(0.05)
+            continue
+        return last
+    return last
 
 
 def preview_payload(response):

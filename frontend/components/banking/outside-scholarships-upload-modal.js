@@ -25,6 +25,7 @@ const EXTRACTING_STATUS_MESSAGES = [
   'Reading amounts and check numbers',
   'Looking up student names',
   'Preparing your spreadsheet',
+  'Large batches can take a few minutes',
 ];
 
 const STATUS_ROTATE_MS = 2500;
