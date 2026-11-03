@@ -22,10 +22,24 @@ STATUS_PROCESSING = "processing"
 STATUS_COMPLETE = "complete"
 STATUS_ERROR = "error"
 
+STAGE_STARTING = "starting"
+STAGE_CLASSIFYING = "classifying_pages"
+STAGE_EXTRACTING = "extracting_checks"
+STAGE_LOOKUP = "looking_up_names"
+
 # One cashier is the usual case; a second slot covers a retry while the first
 # job is finishing. More than this on a Basic B2 risks OOM during vision work.
 MAX_PROCESSING_JOBS = 2
 JOB_TTL_SECONDS = 30 * 60
+
+_PROGRESS_KEYS = (
+    "stage",
+    "message",
+    "pages_total",
+    "pages_classified",
+    "checks_total",
+    "checks_done",
+)
 
 _LOCK = threading.Lock()
 _JOBS: Dict[str, Dict[str, Any]] = {}
@@ -62,6 +76,12 @@ def create_job(owner: str) -> str:
             "preview": None,
             "detail": None,
             "status_code": None,
+            "stage": STAGE_STARTING,
+            "message": "Upload accepted. Starting extraction…",
+            "pages_total": None,
+            "pages_classified": None,
+            "checks_total": None,
+            "checks_done": None,
         }
     return job_id
 
@@ -73,6 +93,48 @@ def get_job(job_id: str) -> Optional[Dict[str, Any]]:
         return dict(job) if job else None
 
 
+def processing_snapshot(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Public poll body while extraction is still running."""
+    snapshot: Dict[str, Any] = {
+        "job_id": job["id"],
+        "status": STATUS_PROCESSING,
+    }
+    for key in _PROGRESS_KEYS:
+        value = job.get(key)
+        if value is not None:
+            snapshot[key] = value
+    return snapshot
+
+
+def update_job_progress(job_id: str, **fields: Any) -> None:
+    """Merge progress fields into a processing job. Unknown keys are ignored."""
+    with _LOCK:
+        job = _JOBS.get(job_id)
+        if not job or job["status"] != STATUS_PROCESSING:
+            return
+        for key, value in fields.items():
+            if key in _PROGRESS_KEYS:
+                job[key] = value
+
+
+def mark_check_done(job_id: str) -> None:
+    """Increment checks_done after one parallel extract worker finishes."""
+    with _LOCK:
+        job = _JOBS.get(job_id)
+        if not job or job["status"] != STATUS_PROCESSING:
+            return
+        total = job.get("checks_total")
+        done = int(job.get("checks_done") or 0) + 1
+        if isinstance(total, int) and total > 0:
+            done = min(done, total)
+        job["checks_done"] = done
+        job["stage"] = STAGE_EXTRACTING
+        if isinstance(total, int) and total > 0:
+            job["message"] = f"Reading check {done} of {total}…"
+        else:
+            job["message"] = f"Reading check {done}…"
+
+
 def complete_job(job_id: str, preview: Dict[str, Any]) -> None:
     with _LOCK:
         job = _JOBS.get(job_id)
@@ -81,6 +143,7 @@ def complete_job(job_id: str, preview: Dict[str, Any]) -> None:
         job["status"] = STATUS_COMPLETE
         job["preview"] = preview
         job["finished_at"] = time.time()
+        job["message"] = "Preview ready"
 
 
 def fail_job(job_id: str, detail: Any, status_code: int) -> None:

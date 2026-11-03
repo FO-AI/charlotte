@@ -64,7 +64,7 @@ export class APIClient {
     }
   }
   async uploadOutsideScholarshipsPdf(file, options = {}) {
-    const { aidYear, aidTerm } = options;
+    const { aidYear, aidTerm, onProgress } = options;
     const authHeaders = await this.getAuthHeaders();
     const formData = new FormData();
     formData.append("files", file);
@@ -106,10 +106,19 @@ export class APIClient {
     if (!jobId) {
       throw new Error('Unexpected response from extraction.');
     }
-    return await this._pollOutsideScholarshipsJob(jobId);
+    if (typeof onProgress === 'function') {
+      onProgress({
+        job_id: jobId,
+        status: data?.status || 'processing',
+        message: data?.message || 'Upload accepted. Starting extraction…',
+        stage: data?.stage || 'starting',
+      });
+    }
+    return await this._pollOutsideScholarshipsJob(jobId, { onProgress });
   }
 
-  async _pollOutsideScholarshipsJob(jobId) {
+  async _pollOutsideScholarshipsJob(jobId, options = {}) {
+    const { onProgress } = options;
     const url = `${API_ENDPOINTS.outsideScholarships}/jobs/${encodeURIComponent(jobId)}`;
     const deadline = Date.now() + 30 * 60 * 1000;
     let networkFailures = 0;
@@ -153,6 +162,9 @@ export class APIClient {
       }
       if (data?.status && data.status !== 'processing') {
         throw new Error(data.detail || 'Upload failed. Please try again.');
+      }
+      if (typeof onProgress === 'function' && data?.status === 'processing') {
+        onProgress(data);
       }
 
       await new Promise((resolve) => setTimeout(resolve, 1500));

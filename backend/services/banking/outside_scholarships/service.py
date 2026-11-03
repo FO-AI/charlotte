@@ -1,7 +1,7 @@
 import asyncio
 import re
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import HTTPException
 from fastapi import UploadFile
@@ -14,10 +14,13 @@ from services.banking.outside_scholarships.active_directory_names import (
     lookup_pids,
 )
 from services.banking.outside_scholarships.graph import build_graph
+from services.banking.outside_scholarships.jobs import STAGE_LOOKUP, STAGE_STARTING
 from services.data_loaders import OutsideScholarshipsDataLoader
 from config import get_logger
 
 logger = get_logger(__name__)
+
+ProgressCallback = Callable[..., None]
 
 # Checks processed at once per upload; also bounds concurrent side-classification calls.
 # Without it the graph's thread pool defaults to CPUs + 4 workers: 6 on a 2-vCPU App Service
@@ -65,13 +68,20 @@ class OutsideScholarshipService:
         graph_access_token: str,
         aid_year: str | None = None,
         aid_term: str | None = None,
+        on_progress: Optional[ProgressCallback] = None,
+        job_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run extraction and AD lookup. Safe to call after the upload HTTP response is sent."""
+        progress = on_progress or (lambda **_fields: None)
         try:
             loader = OutsideScholarshipsDataLoader(aid_year=aid_year, aid_term=aid_term)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+        progress(
+            stage=STAGE_STARTING,
+            message="Reading the PDF…",
+        )
         initial_state = {
             "pdf_folder": None,
             "pdf_files_bytes": [pdf_bytes],
@@ -81,7 +91,11 @@ class OutsideScholarshipService:
         }
         config = {
             "max_concurrency": MAX_CONCURRENT_CHECKS,
-            "configurable": {"llm": self.azure_client.llm},
+            "configurable": {
+                "llm": self.azure_client.llm,
+                "on_progress": progress,
+                "job_id": job_id,
+            },
         }
 
         logger.info("outside_scholarships.service: starting extraction for %s", filename)
@@ -95,6 +109,10 @@ class OutsideScholarshipService:
 
         payload = result.get("final_payload", {"checks": []})
         self._log_extracted_checks(payload)
+        progress(
+            stage=STAGE_LOOKUP,
+            message="Looking up student names…",
+        )
         ad_by_pid = await lookup_active_directory_names(
             self.user_directory, payload.get("checks", []), graph_access_token
         )

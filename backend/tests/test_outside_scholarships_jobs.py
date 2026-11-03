@@ -57,7 +57,47 @@ def test_get_returns_processing_before_complete(client, override_auth, admin_use
     job_id = create_job(job_owner(admin_user))
     response = client.get(f"{JOB_ROUTE}/{job_id}")
     assert response.status_code == 200
-    assert response.json() == {"job_id": job_id, "status": "processing"}
+    body = response.json()
+    assert body["job_id"] == job_id
+    assert body["status"] == "processing"
+    assert body["stage"] == "starting"
+    assert "message" in body
+
+
+def test_get_includes_progress_updates(client, override_auth, admin_user):
+    from services.banking.outside_scholarships.jobs import (
+        STAGE_EXTRACTING,
+        create_job,
+        job_owner,
+        mark_check_done,
+        update_job_progress,
+    )
+
+    job_id = create_job(job_owner(admin_user))
+    update_job_progress(
+        job_id,
+        stage=STAGE_EXTRACTING,
+        message="Reading check 0 of 2…",
+        pages_total=4,
+        pages_classified=4,
+        checks_total=2,
+        checks_done=0,
+    )
+    mark_check_done(job_id)
+
+    response = client.get(f"{JOB_ROUTE}/{job_id}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "job_id": job_id,
+        "status": "processing",
+        "stage": STAGE_EXTRACTING,
+        "message": "Reading check 1 of 2…",
+        "pages_total": 4,
+        "pages_classified": 4,
+        "checks_total": 2,
+        "checks_done": 1,
+    }
 
 
 def test_upload_rejects_when_at_processing_cap(client, override_auth, app, admin_user, monkeypatch):

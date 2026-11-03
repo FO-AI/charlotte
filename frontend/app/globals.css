@@ -1018,12 +1018,23 @@
   animation: extract-progress 1.7s ease-in-out infinite;
 }
 
+.extract-progress-bar--determinate {
+  animation: none;
+  transform: none;
+  transition: width 0.35s ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .extract-progress-bar {
     animation: none;
     width: 100%;
     opacity: 0.55;
     transform: none;
+  }
+
+  .extract-progress-bar--determinate {
+    transition: none;
+    opacity: 1;
   }
 }
 

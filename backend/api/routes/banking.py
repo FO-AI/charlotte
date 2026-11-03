@@ -17,6 +17,8 @@ from services.banking.outside_scholarships.jobs import (
     fail_job,
     get_job,
     job_owner,
+    processing_snapshot,
+    update_job_progress,
 )
 from services.data_loaders.outside_scholarships_json_to_excel import (
     ALLOWED_AID_TERMS,
@@ -49,6 +51,9 @@ async def _run_outside_scholarships_job(
     aid_year: Optional[str],
     aid_term: str,
 ) -> None:
+    def on_progress(**fields: Any) -> None:
+        update_job_progress(job_id, **fields)
+
     try:
         preview = await service.analyze_pdf_bytes(
             pdf_bytes,
@@ -56,6 +61,8 @@ async def _run_outside_scholarships_job(
             graph_access_token,
             aid_year=aid_year,
             aid_term=aid_term,
+            on_progress=on_progress,
+            job_id=job_id,
         )
         complete_job(job_id, preview)
     except HTTPException as exc:
@@ -122,12 +129,12 @@ async def outside_scholarships_job(
     job_id: str,
     user: Dict = Depends(check_banking_or_admin_permissions),
 ):
-    """Return the review preview when extraction finishes, or 400/500 if it failed."""
+    """Return progress while extracting, then the review preview when ready."""
     job = get_job(job_id)
     if not job or job["owner"] != job_owner(user):
         raise HTTPException(status_code=404, detail="Upload job not found.")
     if job["status"] == STATUS_PROCESSING:
-        return {"job_id": job_id, "status": STATUS_PROCESSING}
+        return processing_snapshot(job)
     if job["status"] == STATUS_ERROR:
         raise HTTPException(status_code=job.get("status_code") or 500, detail=job.get("detail"))
     return job["preview"]

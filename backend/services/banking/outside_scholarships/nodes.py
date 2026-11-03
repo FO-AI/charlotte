@@ -4,9 +4,9 @@ import math
 import os
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import fitz  # PyMuPDF
 from langgraph.types import RunnableConfig, Send
@@ -17,6 +17,11 @@ from prompts.outside_scholarship import (
     EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT,
     EXTRACT_SUPPORTING_ROSTER_PROMPT,
     describe_check_images,
+)
+from services.banking.outside_scholarships.jobs import (
+    STAGE_CLASSIFYING,
+    STAGE_EXTRACTING,
+    mark_check_done,
 )
 from services.banking.outside_scholarships.state import CheckPair, OrchestratorState, WorkerState
 from services.data_loaders.outside_scholarships_json_to_excel import ALLOWED_AID_TERMS
@@ -500,30 +505,74 @@ def _classify_batch(llm: Any, content: List[Dict[str, Any]], page_numbers: Seque
             )
 
 
+def _progress_from_config(config: Optional[RunnableConfig]) -> Callable[..., None]:
+    if not config:
+        return lambda **_fields: None
+    configurable = config.get("configurable") or {}
+    callback = configurable.get("on_progress")
+    if callable(callback):
+        return callback
+    return lambda **_fields: None
+
+
+def _job_id_from_config(config: Optional[RunnableConfig]) -> Optional[str]:
+    if not config:
+        return None
+    configurable = config.get("configurable") or {}
+    job_id = configurable.get("job_id")
+    return str(job_id) if job_id else None
+
+
 def _classify_page_sides(
     document: fitz.Document,
     page_count: int,
     llm: Any,
     max_concurrency: Optional[int],
+    on_progress: Optional[Callable[..., None]] = None,
 ) -> List[str]:
     """Label every page of the PDF as a check front, check back, or supporting page, in page order.
 
     Batches are independent, so each is sent as soon as its thumbnails render, while earlier
     batches are still waiting on the model.
     """
+    progress = on_progress or (lambda **_fields: None)
+    progress(
+        stage=STAGE_CLASSIFYING,
+        message=f"Sorting pages (0 of {page_count})…",
+        pages_total=page_count,
+        pages_classified=0,
+    )
     batch_count = math.ceil(page_count / _SIDE_CLASSIFICATION_BATCH_SIZE)
     worker_count = max(1, min(batch_count, max_concurrency or batch_count))
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
-        batches = []
+        futures = {}
         for batch_start in range(0, page_count, _SIDE_CLASSIFICATION_BATCH_SIZE):
             batch_end = min(batch_start + _SIDE_CLASSIFICATION_BATCH_SIZE, page_count)
             # Label pages with their PDF page numbers so logs and errors match what the user sees.
             page_numbers = list(range(batch_start + 1, batch_end + 1))
             with PYMUPDF_LOCK:
                 content = _side_classification_content(document, page_numbers)
-            batches.append(pool.submit(_classify_batch, llm, content, page_numbers))
-        # Collect in page order, not completion order, so every side stays with its page.
-        return [side for batch in batches for side in batch.result()]
+            future = pool.submit(_classify_batch, llm, content, page_numbers)
+            futures[future] = (batch_start, page_numbers)
+
+        sides_by_start: Dict[int, List[str]] = {}
+        classified = 0
+        for future in as_completed(futures):
+            batch_start, page_numbers = futures[future]
+            sides_by_start[batch_start] = future.result()
+            classified += len(page_numbers)
+            progress(
+                stage=STAGE_CLASSIFYING,
+                message=f"Sorting pages ({classified} of {page_count})…",
+                pages_total=page_count,
+                pages_classified=classified,
+            )
+        # Assemble in page order, not completion order, so every side stays with its page.
+        return [
+            side
+            for batch_start in sorted(sides_by_start)
+            for side in sides_by_start[batch_start]
+        ]
 
 
 def _group_pages_by_check(sides: Sequence[str]) -> List[Dict[str, Any]]:
@@ -583,6 +632,7 @@ def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[st
         return {"check_pairs": []}
 
     llm = config["configurable"]["llm"]
+    on_progress = _progress_from_config(config)
     paired_checks: List[CheckPair] = []
     check_index = 1
 
@@ -592,7 +642,13 @@ def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[st
             page_count = document.page_count
         try:
             page_sides = _force_first_page_front(
-                _classify_page_sides(document, page_count, llm, config.get("max_concurrency"))
+                _classify_page_sides(
+                    document,
+                    page_count,
+                    llm,
+                    config.get("max_concurrency"),
+                    on_progress=on_progress,
+                )
             )
             logger.info(
                 "outside_scholarships.pairing: pdf=%s pages=%s sides=%s",
@@ -641,7 +697,15 @@ def pair_pages_node(state: OrchestratorState, config: RunnableConfig) -> Dict[st
             with PYMUPDF_LOCK:
                 document.close()
 
-    logger.info("outside_scholarships.pairing: total_checks=%s", len(paired_checks))
+    checks_total = len(paired_checks)
+    logger.info("outside_scholarships.pairing: total_checks=%s", checks_total)
+    if checks_total:
+        on_progress(
+            stage=STAGE_EXTRACTING,
+            message=f"Reading check 0 of {checks_total}…",
+            checks_total=checks_total,
+            checks_done=0,
+        )
     return {"check_pairs": paired_checks}
 
 
@@ -965,6 +1029,9 @@ def process_check_node(state: WorkerState, config: RunnableConfig) -> Dict[str, 
         )
         check_fields = _normalize_check_fields({})
         extraction_failed = True
+    job_id = _job_id_from_config(config)
+    if job_id:
+        mark_check_done(job_id)
     return {
         "check_results": [
             {
