@@ -46,6 +46,29 @@ async function stubReviewApis(page, previewBody, options = {}) {
     });
   });
 
+  const jobId = 'e2e-outside-scholarships-job';
+  let jobPolls = 0;
+  await page.route('**/api/banking/outside-scholarships/jobs/**', async (route) => {
+    if (options.onJobPoll) {
+      options.onJobPoll();
+    }
+    jobPolls += 1;
+    // First poll streams a real progress update; later polls return the preview.
+    if (jobPolls === 1 && options.progressBody) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(options.progressBody),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(previewBody),
+    });
+  });
+
   await page.route('**/api/banking/outside-scholarships', async (route) => {
     if (route.request().method() !== 'POST') {
       await route.continue();
@@ -53,14 +76,14 @@ async function stubReviewApis(page, previewBody, options = {}) {
     }
     // Exclude nested routes handled above
     const url = route.request().url();
-    if (url.includes('active-directory-names') || url.includes('/export')) {
+    if (url.includes('active-directory-names') || url.includes('/export') || url.includes('/jobs/')) {
       await route.continue();
       return;
     }
     await route.fulfill({
-      status: 200,
+      status: 202,
       contentType: 'application/json',
-      body: JSON.stringify(previewBody),
+      body: JSON.stringify({ job_id: jobId, status: 'processing' }),
     });
   });
 }
@@ -88,6 +111,39 @@ async function uploadAndOpenReview(page) {
 }
 
 test.describe('Outside scholarships review flow', () => {
+  test('upload polls the extraction job until the preview is ready', async ({ page }) => {
+    let polls = 0;
+    await stubReviewApis(page, preview, {
+      onJobPoll: () => { polls += 1; },
+      progressBody: {
+        job_id: 'e2e-outside-scholarships-job',
+        status: 'processing',
+        stage: 'extracting_checks',
+        message: 'Reading check 1 of 2…',
+        checks_total: 2,
+        checks_done: 1,
+      },
+    });
+
+    await page.goto('/e2e/outside-scholarships');
+    const pdfBytes = Buffer.from(
+      '%PDF-1.1\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n',
+      'utf8'
+    );
+    await page.setInputFiles('input[type="file"]', {
+      name: 'sample-checks.pdf',
+      mimeType: 'application/pdf',
+      buffer: pdfBytes,
+    });
+    await page.getByRole('button', { name: 'Upload Check PDF' }).click();
+
+    await expect(page.getByText('Reading check 1 of 2…')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('dialog', { name: 'Review outside scholarship checks' })).toBeVisible({
+      timeout: 15_000,
+    });
+    expect(polls).toBeGreaterThan(0);
+  });
+
   test('upload → fix PID → AD name → export', async ({ page }) => {
     await stubReviewApis(page, preview);
     await uploadAndOpenReview(page);

@@ -62,9 +62,13 @@ def offline_graph_directory(app):
 
 @pytest.fixture
 def client(app):
+    from services.banking.outside_scholarships.jobs import reset_jobs
+
+    reset_jobs()
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+    reset_jobs()
 
 
 @pytest.fixture

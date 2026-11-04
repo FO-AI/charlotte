@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { ThinkingOrb } from 'thinking-orbs';
 import { X, FileCheck, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -19,16 +19,6 @@ import {
 // Scanned check batches often exceed 50MB; keep in sync with backend MAX_UPLOAD_BYTES.
 const MAX_FILE_SIZE = 300 * 1024 * 1024;
 
-const EXTRACTING_STATUS_MESSAGES = [
-  'Reading the PDF',
-  'Sorting fronts and backs',
-  'Reading amounts and check numbers',
-  'Looking up student names',
-  'Preparing your spreadsheet',
-];
-
-const STATUS_ROTATE_MS = 2500;
-
 function formatFileSize(bytes) {
   if (bytes < 1024 * 1024) {
     return `${(bytes / 1024).toFixed(0)} KB`;
@@ -36,7 +26,27 @@ function formatFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function ExtractingPanel({ statusMessage, fileName }) {
+function progressFraction(progress) {
+  if (!progress || typeof progress !== 'object') return null;
+  const checksTotal = Number(progress.checks_total);
+  const checksDone = Number(progress.checks_done);
+  if (Number.isFinite(checksTotal) && checksTotal > 0 && Number.isFinite(checksDone)) {
+    return Math.min(1, Math.max(0, checksDone / checksTotal));
+  }
+  const pagesTotal = Number(progress.pages_total);
+  const pagesClassified = Number(progress.pages_classified);
+  if (Number.isFinite(pagesTotal) && pagesTotal > 0 && Number.isFinite(pagesClassified)) {
+    // Classify is early; keep the bar under half until checks start.
+    return Math.min(0.45, Math.max(0, (pagesClassified / pagesTotal) * 0.45));
+  }
+  return null;
+}
+
+function ExtractingPanel({ statusMessage, fileName, progress }) {
+  const fraction = progressFraction(progress);
+  const determinate = fraction !== null;
+  const widthPercent = determinate ? `${Math.round(fraction * 100)}%` : undefined;
+
   return (
     <div
       className="rounded-lg border border-fordham bg-cloud/40 px-5 py-6 space-y-3"
@@ -53,14 +63,17 @@ function ExtractingPanel({ statusMessage, fileName }) {
           className="relative h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[rgba(19,41,75,0.12)]"
           aria-hidden="true"
         >
-          <div className="extract-progress-bar" />
+          <div
+            className={determinate ? 'extract-progress-bar extract-progress-bar--determinate' : 'extract-progress-bar'}
+            style={determinate ? { width: widthPercent } : undefined}
+          />
         </div>
         <div className="shrink-0 flex items-center justify-center" aria-hidden="true">
           <ThinkingOrb state="searching" size={20} theme="light" aria-label="Extracting checks" />
         </div>
       </div>
       <p className="min-h-[1.25rem] text-sm text-muted-foreground" aria-live="polite">
-        {statusMessage || 'Starting…'}
+        {statusMessage || 'Job running in the background. Preview will open when ready…'}
       </p>
     </div>
   );
@@ -79,32 +92,11 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
   const [aidTerm, setAidTerm] = useState(DEFAULT_AID_TERM);
   const [errorMessage, setErrorMessage] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
+  const [jobProgress, setJobProgress] = useState(null);
   const [preview, setPreview] = useState(null);
   const fileInputRef = useRef(null);
   const extracting = phase === 'extracting';
   const reviewing = phase === 'review';
-
-  useEffect(() => {
-    if (!extracting) {
-      setStatusMessage('');
-      return undefined;
-    }
-
-    const startIndex = Math.floor(Math.random() * EXTRACTING_STATUS_MESSAGES.length);
-    let step = 0;
-
-    // Delay first rotate until the first interval so a fast request never flashes a line.
-    const id = window.setInterval(() => {
-      const index = (startIndex + step) % EXTRACTING_STATUS_MESSAGES.length;
-      setStatusMessage(EXTRACTING_STATUS_MESSAGES[index]);
-      step += 1;
-    }, STATUS_ROTATE_MS);
-
-    return () => {
-      window.clearInterval(id);
-      setStatusMessage('');
-    };
-  }, [extracting]);
 
   const resetState = () => {
     setPhase('idle');
@@ -113,6 +105,7 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
     setAidTerm(DEFAULT_AID_TERM);
     setErrorMessage('');
     setStatusMessage('');
+    setJobProgress(null);
     setPreview(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -160,6 +153,8 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
 
     setPhase('extracting');
     setErrorMessage('');
+    setStatusMessage('Upload accepted. Starting extraction…');
+    setJobProgress(null);
 
     try {
       const sanitizedAidYear = (aidYear || '').trim();
@@ -173,6 +168,12 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
       const result = await apiClient.uploadOutsideScholarshipsPdf(selectedFile, {
         aidYear: sanitizedAidYear,
         aidTerm,
+        onProgress: (progress) => {
+          setJobProgress(progress);
+          if (progress?.message) {
+            setStatusMessage(progress.message);
+          }
+        },
       });
 
       if (!result || !Array.isArray(result.checks)) {
@@ -187,6 +188,7 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
     } catch (error) {
       setErrorMessage(error.message || 'Upload failed. Please try again.');
       setPhase('error');
+      setJobProgress(null);
     }
   };
 
@@ -241,7 +243,11 @@ export default function OutsideScholarshipsUploadModal({ isOpen, onClose, return
         </DialogHeader>
 
         {extracting ? (
-          <ExtractingPanel statusMessage={statusMessage} fileName={selectedFile?.name} />
+          <ExtractingPanel
+            statusMessage={statusMessage}
+            fileName={selectedFile?.name}
+            progress={jobProgress}
+          />
         ) : (
           <>
             <div className="space-y-4">
