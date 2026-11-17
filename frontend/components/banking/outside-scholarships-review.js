@@ -33,7 +33,7 @@ import {
   checkNameMismatchFlag,
   checkSupportingLooksLikeCheckFlag,
   checkExtractionFailedFlag,
-  checkIssueShortLabels,
+  checkIssueFlags,
   checkNeedsReview,
   checkStatus,
   hasNonBlankBadPid,
@@ -65,6 +65,8 @@ const SECTION_CARD =
 /** Marks Mark verified as the way to clear the check-level flags shown above it. */
 const VERIFY_EMPHASIS_CLASS = 'ring-2 ring-navy/40 ring-offset-2 shadow-sm';
 const VERIFY_EMPHASIS = 'resolve-flag';
+const VERIFY_DISABLED_BAD_PID_MESSAGE =
+  'Fix the PID first. Mark verified stays disabled until every PID has nine digits.';
 
 const LIGHTBOX_MIN_ZOOM = 1;
 const LIGHTBOX_MAX_ZOOM = 4;
@@ -609,10 +611,11 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     return checks;
   }, [checks, filter, selectedCheckId]);
 
-  const issueLabels = useMemo(
-    () => (selectedCheck ? checkIssueShortLabels(selectedCheck) : []),
+  const issueFlags = useMemo(
+    () => (selectedCheck ? checkIssueFlags(selectedCheck) : []),
     [selectedCheck]
   );
+  const issueLabels = useMemo(() => issueFlags.map((flag) => flag.shortLabel), [issueFlags]);
   const missingFields = useMemo(
     () => (selectedCheck && !selectedCheck.verified ? missingRequiredFields(selectedCheck) : []),
     [selectedCheck]
@@ -1069,8 +1072,17 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const payeeNameInvalid = Boolean(selectedNameMismatchFlag);
   const pidSectionInvalid = Boolean(selectedMultiPidFlag || selectedAmountSplitFlag);
   const verifyDisabled = Boolean(selectedCheck && !selectedCheck.verified && selectedHasBadPid);
-  // Only emphasize when verifying is the fix; field-level flags are fixed by editing instead.
-  const emphasizeVerify = Boolean(verifyResolutionIds) && !verifyDisabled;
+  const verifyDisabledGuidanceId = selectedCheck
+    ? `verify-disabled-bad-pid-${selectedCheck.check_index}`
+    : undefined;
+  const allIssuesResolvedByVerify =
+    issueFlags.length > 0 && issueFlags.every((flag) => flag.resolvedByVerify);
+  const emphasizeVerify = allIssuesResolvedByVerify && Boolean(verifyResolutionIds) && !verifyDisabled;
+  const verifyButtonDescriptionIds = verifyDisabled
+    ? verifyDisabledGuidanceId
+    : emphasizeVerify
+      ? verifyResolutionIds
+      : undefined;
 
   return (
     <TooltipProvider>
@@ -1310,7 +1322,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                               </p>
                               <p className="font-semibold mt-0.5">{issueLabels.join(' · ')}</p>
                             </div>
-                            {selectedCheckLevelFlags.length ? (
+                            {selectedCheckLevelFlags.length || verifyDisabled ? (
                               <div className="space-y-2 border-t border-red-200/80 pt-3">
                                 {selectedCheckLevelFlags.map((flag) => (
                                   <div key={flag.type} className="space-y-1">
@@ -1323,6 +1335,11 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                     ) : null}
                                   </div>
                                 ))}
+                                {verifyDisabled ? (
+                                  <p id={verifyDisabledGuidanceId} className="text-sm text-red-700">
+                                    {VERIFY_DISABLED_BAD_PID_MESSAGE}
+                                  </p>
+                                ) : null}
                               </div>
                             ) : null}
                           </div>
@@ -1640,7 +1657,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                               size="sm"
                               className={emphasizeVerify ? VERIFY_EMPHASIS_CLASS : undefined}
                               data-emphasis={emphasizeVerify ? VERIFY_EMPHASIS : undefined}
-                              aria-describedby={emphasizeVerify ? verifyResolutionIds : undefined}
+                              aria-describedby={verifyButtonDescriptionIds}
                               onClick={toggleVerified}
                               disabled={verifyDisabled}
                             >
