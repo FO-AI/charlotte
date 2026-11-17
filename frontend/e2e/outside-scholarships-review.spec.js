@@ -323,13 +323,17 @@ test.describe('Outside scholarships review flow', () => {
     // How to resolve is shown on the page (not only in a hover tooltip) and points at Mark verified.
     const resolutionText = /Open the Supporting page and compare it to the front/i;
     await expect(page.getByText(resolutionText)).toBeVisible();
+    const needsReviewBox = page.getByRole('status').filter({ hasText: 'Needs review' });
+    await expect(needsReviewBox).toContainText('Supporting looks like check');
+    await expect(needsReviewBox).toContainText(resolutionText);
+    await expect(page.getByText('Supporting looks like check', { exact: true })).toHaveCount(1);
     await expect(verifyButton).toHaveAccessibleDescription(resolutionText);
     await expect(verifyButton).toHaveAttribute('data-emphasis', 'resolve-flag');
 
     const artifactsDir = path.join(__dirname, 'artifacts');
     fs.mkdirSync(artifactsDir, { recursive: true });
     await page.screenshot({
-      path: path.join(artifactsDir, 'outside-scholarships-supporting-looks-like-check-before-verify.png'),
+      path: path.join(artifactsDir, 'outside-scholarships-supporting-looks-like-check-merged-box.png'),
       fullPage: true,
     });
     // The review panel scrolls on its own, so capture the emphasized button separately.

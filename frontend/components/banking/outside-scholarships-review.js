@@ -1296,17 +1296,36 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                   <>
                     {issueLabels.length > 0 ? (
                       <div
-                        className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-gradient-to-r from-red-50 to-white px-4 py-3 text-sm text-red-950 shadow-sm"
+                        className="rounded-xl border border-red-200 bg-gradient-to-r from-red-50 to-white px-4 py-3 text-sm text-red-950 shadow-sm"
                         role="status"
                       >
-                        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100">
-                          <AlertCircle className="h-4 w-4 text-red-600" aria-hidden="true" />
-                        </span>
-                        <div className="min-w-0 pt-0.5">
-                          <p className="text-xs font-bold uppercase tracking-wide text-red-700">
-                            Needs review
-                          </p>
-                          <p className="font-semibold mt-0.5">{issueLabels.join(' · ')}</p>
+                        <div className="flex items-start gap-2.5">
+                          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100">
+                            <AlertCircle className="h-4 w-4 text-red-600" aria-hidden="true" />
+                          </span>
+                          <div className="min-w-0 flex-1 space-y-3 pt-0.5">
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wide text-red-700">
+                                Needs review
+                              </p>
+                              <p className="font-semibold mt-0.5">{issueLabels.join(' · ')}</p>
+                            </div>
+                            {selectedCheckLevelFlags.length ? (
+                              <div className="space-y-2 border-t border-red-200/80 pt-3">
+                                {selectedCheckLevelFlags.map((flag) => (
+                                  <div key={flag.type} className="space-y-1">
+                                    <p className="text-sm text-red-700">{flag.message}</p>
+                                    {flag.resolution ? (
+                                      <p id={flagResolutionId(flag)} className="text-sm text-navy">
+                                        <span className="font-semibold">How to resolve: </span>
+                                        {flag.resolution}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     ) : (
@@ -1326,22 +1345,6 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                     )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {selectedCheckLevelFlags.length ? (
-                        <div className={`${SECTION_CARD} md:col-span-2 space-y-3`}>
-                          {selectedCheckLevelFlags.map((flag) => (
-                            <div key={flag.type} className="space-y-1">
-                              <FlagChip flag={flag} />
-                              <p className="text-sm text-red-700">{flag.message}</p>
-                              {flag.resolution ? (
-                                <p id={flagResolutionId(flag)} className="text-sm text-navy">
-                                  <span className="font-semibold">How to resolve: </span>
-                                  {flag.resolution}
-                                </p>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
                       <CheckThumb
                         label="Front"
                         src={selectedCheck.front_image}
