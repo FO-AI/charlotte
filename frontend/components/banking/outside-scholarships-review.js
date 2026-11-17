@@ -62,6 +62,10 @@ const READONLY_SURFACE =
 const SECTION_CARD =
   'rounded-xl border border-[#B7D7ED] bg-white p-3.5 shadow-sm';
 
+/** Marks Mark verified as the way to clear the check-level flags shown above it. */
+const VERIFY_EMPHASIS_CLASS = 'ring-2 ring-navy/40 ring-offset-2 shadow-sm';
+const VERIFY_EMPHASIS = 'resolve-flag';
+
 const LIGHTBOX_MIN_ZOOM = 1;
 const LIGHTBOX_MAX_ZOOM = 4;
 const LIGHTBOX_ZOOM_STEP = 0.25;
@@ -407,6 +411,10 @@ function StatusListIcon({ check }) {
   );
 }
 
+function flagResolutionId(flag) {
+  return `flag-resolution-${flag.type}`;
+}
+
 function FlagChip({ flag, onRetry }) {
   if (!flag || flag.type === 'ad_looking_up') return null;
   return (
@@ -581,6 +589,14 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
         selectedExtractionFailedFlag,
       ].filter(Boolean),
     [selectedSupportingLooksLikeCheckFlag, selectedExtractionFailedFlag]
+  );
+  const verifyResolutionIds = useMemo(
+    () =>
+      selectedCheckLevelFlags
+        .filter((flag) => flag.resolvedByVerify)
+        .map(flagResolutionId)
+        .join(' '),
+    [selectedCheckLevelFlags]
   );
   const anyCheckHasBadPid = useMemo(() => checks.some((check) => hasNonBlankBadPid(check)), [checks]);
   const exportBlockedByBadPid = anyCheckHasBadPid;
@@ -1052,6 +1068,9 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     missingFields.includes('provider') || missingFields.includes('provider length');
   const payeeNameInvalid = Boolean(selectedNameMismatchFlag);
   const pidSectionInvalid = Boolean(selectedMultiPidFlag || selectedAmountSplitFlag);
+  const verifyDisabled = Boolean(selectedCheck && !selectedCheck.verified && selectedHasBadPid);
+  // Only emphasize when verifying is the fix; field-level flags are fixed by editing instead.
+  const emphasizeVerify = Boolean(verifyResolutionIds) && !verifyDisabled;
 
   return (
     <TooltipProvider>
@@ -1308,9 +1327,18 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {selectedCheckLevelFlags.length ? (
-                        <div className={`${SECTION_CARD} md:col-span-2 flex flex-wrap gap-2`}>
+                        <div className={`${SECTION_CARD} md:col-span-2 space-y-3`}>
                           {selectedCheckLevelFlags.map((flag) => (
-                            <FlagChip key={flag.type} flag={flag} />
+                            <div key={flag.type} className="space-y-1">
+                              <FlagChip flag={flag} />
+                              <p className="text-sm text-red-700">{flag.message}</p>
+                              {flag.resolution ? (
+                                <p id={flagResolutionId(flag)} className="text-sm text-navy">
+                                  <span className="font-semibold">How to resolve: </span>
+                                  {flag.resolution}
+                                </p>
+                              ) : null}
+                            </div>
                           ))}
                         </div>
                       ) : null}
@@ -1605,11 +1633,15 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                           <div className="flex flex-col items-end gap-1">
                             <Button
                               type="button"
-                              variant="outline"
+                              variant={emphasizeVerify ? 'default' : 'outline'}
                               size="sm"
+                              className={emphasizeVerify ? VERIFY_EMPHASIS_CLASS : undefined}
+                              data-emphasis={emphasizeVerify ? VERIFY_EMPHASIS : undefined}
+                              aria-describedby={emphasizeVerify ? verifyResolutionIds : undefined}
                               onClick={toggleVerified}
-                              disabled={!selectedCheck.verified && selectedHasBadPid}
+                              disabled={verifyDisabled}
                             >
+                              {emphasizeVerify ? <CheckCircle2 aria-hidden="true" /> : null}
                               {selectedCheck.verified ? 'Undo' : 'Mark verified'}
                             </Button>
                             {!selectedCheck.verified && selectedHasBadPid ? (
