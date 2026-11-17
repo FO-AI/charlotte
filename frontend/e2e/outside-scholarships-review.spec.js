@@ -8,6 +8,10 @@ const preview = JSON.parse(
 
 const FIXED_PID = '123456789';
 const AD_NAME = 'Example, Alex';
+const SUPPORTING_RESOLUTION = /Open the Supporting page and compare it to the front/i;
+const EXTRACTION_RESOLUTION = /Check each field against the images/i;
+const BAD_PID_VERIFY_GUIDANCE =
+  'Fix the PID first. Mark verified stays disabled until every PID has nine digits.';
 
 async function stubReviewApis(page, previewBody, options = {}) {
   const lookupByPid =
@@ -321,7 +325,7 @@ test.describe('Outside scholarships review flow', () => {
     await expect(verifyButton).toBeEnabled();
 
     // How to resolve is shown on the page (not only in a hover tooltip) and points at Mark verified.
-    const resolutionText = /Open the Supporting page and compare it to the front/i;
+    const resolutionText = SUPPORTING_RESOLUTION;
     await expect(page.getByText(resolutionText)).toBeVisible();
     const needsReviewBox = page.getByRole('status').filter({ hasText: 'Needs review' });
     await expect(needsReviewBox).toContainText('Supporting looks like check');
@@ -383,7 +387,7 @@ test.describe('Outside scholarships review flow', () => {
     const verifyButton = page.getByRole('button', { name: 'Mark verified' });
     await expect(verifyButton).toBeEnabled();
 
-    const resolutionText = /Check each field against the images/i;
+    const resolutionText = EXTRACTION_RESOLUTION;
     await expect(page.getByText(resolutionText)).toBeVisible();
     await expect(verifyButton).toHaveAccessibleDescription(resolutionText);
     await expect(verifyButton).toHaveAttribute('data-emphasis', 'resolve-flag');
@@ -401,6 +405,170 @@ test.describe('Outside scholarships review flow', () => {
       path: path.join(artifactsDir, 'outside-scholarships-extraction-failed.png'),
       fullPage: true,
     });
+  });
+
+  test('supporting flag plus incomplete PID amount split does not emphasize Mark verified', async ({ page }) => {
+    const image = preview.checks[0].front_image;
+    const mixedIssuePreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          provider: 'Example Foundation',
+          amount: '250.00',
+          name: 'Alex Example',
+          supporting_pages: [2],
+          supporting_images: [image],
+          supporting_has_amount_and_pid: true,
+          extraction_failed: false,
+          pids: [
+            { pid: FIXED_PID, amount: '100.00', active_directory: { status: 'found', name: AD_NAME } },
+            { pid: '987654321', amount: null, active_directory: { status: 'found', name: AD_NAME } },
+          ],
+        },
+      ],
+    };
+    await stubReviewApis(page, mixedIssuePreview);
+    await uploadAndOpenReview(page);
+
+    const needsReviewBox = page.getByRole('status').filter({ hasText: 'Needs review' });
+    await expect(needsReviewBox).toContainText('Supporting looks like check');
+    await expect(needsReviewBox).toContainText('Amount not split');
+    await expect(needsReviewBox).toContainText(SUPPORTING_RESOLUTION);
+
+    const verifyButton = page.getByRole('button', { name: 'Mark verified' });
+    await expect(verifyButton).toBeEnabled();
+    await expect(verifyButton).not.toHaveAttribute('data-emphasis', 'resolve-flag');
+
+    const artifactsDir = path.join(__dirname, 'artifacts');
+    fs.mkdirSync(artifactsDir, { recursive: true });
+    await page.screenshot({
+      path: path.join(artifactsDir, 'outside-scholarships-supporting-plus-incomplete-split.png'),
+      fullPage: true,
+    });
+  });
+
+  test('supporting flag plus malformed PID explains why Mark verified is disabled', async ({ page }) => {
+    const image = preview.checks[0].front_image;
+    const malformedPidPreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          provider: 'Example Foundation',
+          amount: '250.00',
+          name: 'Alex Example',
+          supporting_pages: [2],
+          supporting_images: [image],
+          supporting_has_amount_and_pid: true,
+          extraction_failed: false,
+          pids: [{ pid: '12345678', active_directory: { status: 'not_found', name: null } }],
+        },
+      ],
+    };
+    await stubReviewApis(page, malformedPidPreview);
+    await uploadAndOpenReview(page);
+
+    const needsReviewBox = page.getByRole('status').filter({ hasText: 'Needs review' });
+    await expect(needsReviewBox).toContainText('Supporting looks like check');
+    await expect(needsReviewBox).toContainText('Bad PID');
+    await expect(needsReviewBox).toContainText(SUPPORTING_RESOLUTION);
+    await expect(needsReviewBox).toContainText(BAD_PID_VERIFY_GUIDANCE);
+
+    const verifyButton = page.getByRole('button', { name: 'Mark verified' });
+    await expect(verifyButton).toBeDisabled();
+    await expect(verifyButton).not.toHaveAttribute('data-emphasis', 'resolve-flag');
+    await expect(verifyButton).toHaveAccessibleDescription(BAD_PID_VERIFY_GUIDANCE);
+  });
+
+  test('supporting and extraction flags together emphasize Mark verified with both resolutions', async ({ page }) => {
+    const image = preview.checks[0].front_image;
+    const verifyResolvablePreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          provider: 'Example Foundation',
+          amount: '250.00',
+          name: 'Alex Example',
+          supporting_pages: [2],
+          supporting_images: [image],
+          supporting_has_amount_and_pid: true,
+          extraction_failed: true,
+          pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } }],
+        },
+      ],
+    };
+    await stubReviewApis(page, verifyResolvablePreview);
+    await uploadAndOpenReview(page);
+
+    const needsReviewBox = page.getByRole('status').filter({ hasText: 'Needs review' });
+    await expect(needsReviewBox).toContainText('Supporting looks like check');
+    await expect(needsReviewBox).toContainText('Extraction failed');
+    await expect(needsReviewBox).toContainText(SUPPORTING_RESOLUTION);
+    await expect(needsReviewBox).toContainText(EXTRACTION_RESOLUTION);
+
+    const verifyButton = page.getByRole('button', { name: 'Mark verified' });
+    await expect(verifyButton).toHaveAttribute('data-emphasis', 'resolve-flag');
+    await expect(verifyButton).toHaveAccessibleDescription(
+      /Open the Supporting page[\s\S]*Check each field against the images/i
+    );
+  });
+
+  test('Mark verified emphasis follows the selected check', async ({ page }) => {
+    const image = preview.checks[0].front_image;
+    const multiCheckPreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          check_index: 1,
+          provider: 'Example Foundation',
+          amount: '250.00',
+          name: 'Alex Example',
+          supporting_pages: [2],
+          supporting_images: [image],
+          supporting_has_amount_and_pid: true,
+          extraction_failed: false,
+          pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } }],
+        },
+        {
+          ...preview.checks[0],
+          check_index: 2,
+          check_number: '1002',
+          provider: 'Example Foundation',
+          amount: '250.00',
+          name: 'Alex Example',
+          supporting_pages: [3],
+          supporting_images: [image],
+          supporting_has_amount_and_pid: true,
+          extraction_failed: false,
+          pids: [
+            { pid: FIXED_PID, amount: '100.00', active_directory: { status: 'found', name: AD_NAME } },
+            { pid: '987654321', amount: null, active_directory: { status: 'found', name: AD_NAME } },
+          ],
+        },
+      ],
+    };
+    await stubReviewApis(page, multiCheckPreview);
+    await uploadAndOpenReview(page);
+
+    const verifyButton = page.getByRole('button', { name: 'Mark verified' });
+    await expect(page.getByRole('option', { name: /Check 1/i })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    await expect(verifyButton).toHaveAttribute('data-emphasis', 'resolve-flag');
+    await expect(verifyButton).toHaveAccessibleDescription(SUPPORTING_RESOLUTION);
+
+    await page.getByRole('option', { name: /Check 2/i }).click();
+    await expect(page.getByRole('option', { name: /Check 2/i })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    const needsReviewBox = page.getByRole('status').filter({ hasText: 'Needs review' });
+    await expect(needsReviewBox).toContainText('Amount not split');
+    await expect(verifyButton).not.toHaveAttribute('data-emphasis', 'resolve-flag');
   });
 
   test('complete multi-PID amount split exports per-PID amounts after verification', async ({ page }) => {

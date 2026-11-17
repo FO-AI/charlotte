@@ -284,50 +284,57 @@ export function checkStatus(check) {
 }
 
 /**
- * Short issue labels for the selected-check issue strip (deduped, stable order).
+ * Issue records for the selected-check issue strip (deduped by label, stable order).
  */
-export function checkIssueShortLabels(check) {
+export function checkIssueFlags(check) {
   if (!check || check.verified || !checkNeedsReview(check)) return [];
-  const labels = [];
+  const flags = [];
   const seen = new Set();
-  const push = (label) => {
-    if (!label || seen.has(label)) return;
-    seen.add(label);
-    labels.push(label);
+  const push = (flag) => {
+    if (!flag?.shortLabel || seen.has(flag.shortLabel)) return;
+    seen.add(flag.shortLabel);
+    flags.push(flag);
   };
 
   const fieldFlag = checkFieldFlag(check);
   if (fieldFlag) {
     for (const field of fieldFlag.missing || []) {
-      if (field === 'amount') push('Missing amount');
-      else if (field === 'check number') push('Missing check number');
-      else if (field === 'provider') push('Missing provider');
-      else if (field === 'provider length') push('Provider too long');
-      else push(fieldFlag.shortLabel);
+      if (field === 'amount') push({ ...fieldFlag, shortLabel: 'Missing amount' });
+      else if (field === 'check number') push({ ...fieldFlag, shortLabel: 'Missing check number' });
+      else if (field === 'provider') push({ ...fieldFlag, shortLabel: 'Missing provider' });
+      else if (field === 'provider length') push({ ...fieldFlag, shortLabel: 'Provider too long' });
+      else push(fieldFlag);
     }
   }
 
   const multiPidFlag = checkMultiPidFlag(check);
-  if (multiPidFlag) push(multiPidFlag.shortLabel);
+  if (multiPidFlag) push(multiPidFlag);
 
   const amountSplitFlag = checkAmountSplitFlag(check);
-  if (amountSplitFlag) push(amountSplitFlag.shortLabel);
+  if (amountSplitFlag) push(amountSplitFlag);
 
   const nameMismatchFlag = checkNameMismatchFlag(check);
-  if (nameMismatchFlag) push(nameMismatchFlag.shortLabel);
+  if (nameMismatchFlag) push(nameMismatchFlag);
 
   const supportingFlag = checkSupportingLooksLikeCheckFlag(check);
-  if (supportingFlag) push(supportingFlag.shortLabel);
+  if (supportingFlag) push(supportingFlag);
 
   const extractionFlag = checkExtractionFailedFlag(check);
-  if (extractionFlag) push(extractionFlag.shortLabel);
+  if (extractionFlag) push(extractionFlag);
 
   const pids = Array.isArray(check.pids) && check.pids.length ? check.pids : [{ pid: '' }];
   for (const entry of pids) {
     const flag = pidEntryFlag(entry);
-    if (flag) push(flag.shortLabel);
+    if (flag) push(flag);
   }
-  return labels;
+  return flags;
+}
+
+/**
+ * Short issue labels for the selected-check issue strip (deduped, stable order).
+ */
+export function checkIssueShortLabels(check) {
+  return checkIssueFlags(check).map((flag) => flag.shortLabel);
 }
 
 export function summarizeReview(checks) {
