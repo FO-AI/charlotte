@@ -108,6 +108,9 @@ export function checkSupportingLooksLikeCheckFlag(check) {
     shortLabel: 'Supporting looks like check',
     message:
       'A supporting page has its own amount and PID. Confirm this check was grouped correctly before export.',
+    resolution:
+      'Open the Supporting page and compare it to the front. If it is for the same student and amount (usually an award letter), click Mark verified. If it looks like a separate check, do not verify it; flag it for re-upload.',
+    resolvedByVerify: true,
   };
 }
 
@@ -118,6 +121,9 @@ export function checkExtractionFailedFlag(check) {
     type: 'extraction_failed',
     shortLabel: 'Extraction failed',
     message: 'Field extraction failed for this check. Review the images and enter values manually, or re-upload.',
+    resolution:
+      'Check each field against the images, fix anything that is wrong, then click Mark verified.',
+    resolvedByVerify: true,
   };
 }
 

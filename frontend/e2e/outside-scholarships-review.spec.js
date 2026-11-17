@@ -319,14 +319,34 @@ test.describe('Outside scholarships review flow', () => {
 
     const verifyButton = page.getByRole('button', { name: 'Mark verified' });
     await expect(verifyButton).toBeEnabled();
-    await verifyButton.click();
 
-    await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
-    await expect(page.getByText(/0 of 1 left/i).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
+    // How to resolve is shown on the page (not only in a hover tooltip) and points at Mark verified.
+    const resolutionText = /Open the Supporting page and compare it to the front/i;
+    await expect(page.getByText(resolutionText)).toBeVisible();
+    await expect(verifyButton).toHaveAccessibleDescription(resolutionText);
+    await expect(verifyButton).toHaveAttribute('data-emphasis', 'resolve-flag');
 
     const artifactsDir = path.join(__dirname, 'artifacts');
     fs.mkdirSync(artifactsDir, { recursive: true });
+    await page.screenshot({
+      path: path.join(artifactsDir, 'outside-scholarships-supporting-looks-like-check-before-verify.png'),
+      fullPage: true,
+    });
+    // The review panel scrolls on its own, so capture the emphasized button separately.
+    await verifyButton.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: path.join(artifactsDir, 'outside-scholarships-supporting-looks-like-check-verify-button.png'),
+    });
+
+    await verifyButton.click();
+
+    const undoButton = page.getByRole('button', { name: 'Undo' });
+    await expect(undoButton).toBeVisible();
+    await expect(undoButton).not.toHaveAttribute('data-emphasis', 'resolve-flag');
+    await expect(page.getByText(resolutionText)).toBeHidden();
+    await expect(page.getByText(/0 of 1 left/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
+
     await page.screenshot({
       path: path.join(artifactsDir, 'outside-scholarships-supporting-looks-like-check.png'),
       fullPage: true,
@@ -358,9 +378,16 @@ test.describe('Outside scholarships review flow', () => {
 
     const verifyButton = page.getByRole('button', { name: 'Mark verified' });
     await expect(verifyButton).toBeEnabled();
+
+    const resolutionText = /Check each field against the images/i;
+    await expect(page.getByText(resolutionText)).toBeVisible();
+    await expect(verifyButton).toHaveAccessibleDescription(resolutionText);
+    await expect(verifyButton).toHaveAttribute('data-emphasis', 'resolve-flag');
+
     await verifyButton.click();
 
     await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+    await expect(page.getByText(resolutionText)).toBeHidden();
     await expect(page.getByText(/0 of 1 left/i).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
 
@@ -426,6 +453,11 @@ test.describe('Outside scholarships review flow', () => {
     await uploadAndOpenReview(page);
 
     await expect(page.getByText(/Amount not split/i).first()).toBeVisible();
+    // Split issues are fixed by editing amounts, so Mark verified is not emphasized here.
+    await expect(page.getByRole('button', { name: 'Mark verified' })).not.toHaveAttribute(
+      'data-emphasis',
+      'resolve-flag'
+    );
     await expect(
       page.getByText(/Amounts not split\. Excel will use \$250\.00 on every PID row until the split matches\./i)
     ).toBeVisible();
