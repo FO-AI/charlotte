@@ -51,10 +51,11 @@ Instructions:
   Summer Session 1 -> "SS1"
   Summer Session 2 -> "SS2"
   Do not derive an aid year from a date or from "2026-2027" on a page.
-- `supporting_has_amount_and_pid`: true when any supporting page shows both its own dollar amount
-  and a 9-digit student PID. false when there are no supporting pages, or when no supporting page
-  has both. Use this only as a review signal for a possible mis-grouped check; do not invent values
-  for other fields from it.
+- `supporting_looks_like_check`: true when any supporting page looks like a check itself, not a
+  letter, form, payment stub, voucher or roster: it shows a check number, a "pay to the order of"
+  payee line, bank routing or account numbers, or a payer signature line. false when there are no
+  supporting pages or none looks like a check. When you cannot tell, return true. Use this only as a
+  review signal for a possible mis-grouped check; do not invent values for other fields from it.
 
 Return ONLY valid JSON with exactly these keys:
 {
@@ -66,7 +67,7 @@ Return ONLY valid JSON with exactly these keys:
   "provider": "string or null",
   "scholarship_name": "string or null",
   "aid_term": "F, S, F/S, SS1, SS2, or null",
-  "supporting_has_amount_and_pid": false
+  "supporting_looks_like_check": false
 }
 """
 

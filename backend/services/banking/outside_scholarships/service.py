@@ -317,7 +317,7 @@ class OutsideScholarshipService:
                     "provider": check.get("provider"),
                     "scholarship_name": check.get("scholarship_name"),
                     "aid_term": aid_term_value if isinstance(aid_term_value, str) else None,
-                    "supporting_has_amount_and_pid": bool(check.get("supporting_has_amount_and_pid")),
+                    "supporting_looks_like_check": bool(check.get("supporting_looks_like_check")),
                     "extraction_failed": bool(check.get("extraction_failed")),
                     "pids": pids,
                 }

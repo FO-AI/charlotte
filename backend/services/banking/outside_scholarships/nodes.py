@@ -293,7 +293,7 @@ def _normalize_check_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
         "provider": _normalize_text(fields.get("provider")),
         "scholarship_name": _normalize_text(fields.get("scholarship_name")),
         "aid_term": _normalize_aid_term(fields.get("aid_term")),
-        "supporting_has_amount_and_pid": _truthy_flag(fields.get("supporting_has_amount_and_pid")),
+        "supporting_looks_like_check": _truthy_flag(fields.get("supporting_looks_like_check")),
     }
 
 
