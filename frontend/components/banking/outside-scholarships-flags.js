@@ -186,7 +186,7 @@ export function pidEntryFlag(entry) {
   return null;
 }
 
-function isValidAmount(value) {
+export function isValidAmount(value) {
   if (value === null || value === undefined) return false;
   const text = String(value).trim();
   if (!text) return false;
