@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Promote the images scripts/publish.sh pushed for $IMAGE_TAG to the two App Service web
-# apps, by digest, then verify. Runs inside the shared FO-AI reusable-azure-cd wrapper,
+# Promote the images scripts/publish.sh pushed for $IMAGE_TAG to the two Azure Container
+# Apps, by digest, then verify. Runs inside the shared FO-AI reusable-azure-cd wrapper,
 # which has already checked out the commit, rejected a stale main, and signed in to Azure.
 # Never builds.
+#
+# App settings and secrets are managed on the Container Apps themselves, not by this script.
 #
 # Part of the FO-AI repository script contract (scripts/ci.sh, scripts/publish.sh,
 # scripts/cd.sh); see the FO-AI/automation README and docs/CI-CD.md.
@@ -11,8 +13,7 @@
 #                   API_ENV_FILE, WEB_ENV_FILE.
 #
 # STATUS: implemented. Replaces the deploy half of scripts/docker-build-and-push.sh.
-# Reference implementation: FO-AI/nimbus scripts/cd.sh. Nimbus deploys to Container Apps;
-# Charlotte runs on App Service, so the `az` commands differ but the order is the same.
+# Reference implementation: FO-AI/nimbus scripts/cd.sh.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -29,14 +30,8 @@ if [[ ! "$IMAGE_TAG" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
-BACKEND_ENV_FILE="$RUNNER_TEMP/charlotte-backend.env"
-BACKEND_SETTINGS_JSON="$RUNNER_TEMP/charlotte-backend.settings.json"
-FRONTEND_SETTINGS_JSON="$RUNNER_TEMP/charlotte-frontend.settings.json"
-
-cleanup() {
-  rm -f "$BACKEND_ENV_FILE" "$BACKEND_SETTINGS_JSON" "$FRONTEND_SETTINGS_JSON"
-}
-trap cleanup EXIT
+unset API_ENV_FILE
+unset WEB_ENV_FILE
 
 eval "$(python3 - <<'PY'
 import json
@@ -51,11 +46,6 @@ required = (
     "FRONTEND_APP_NAME",
     "BACKEND_URL",
     "FRONTEND_URL",
-)
-optional = (
-    "NEXT_PUBLIC_API_BASE_URL",
-    "NEXT_PUBLIC_AZURE_AD_CLIENT_ID",
-    "NEXT_PUBLIC_AZURE_AD_TENANT_ID",
 )
 
 try:
@@ -76,7 +66,7 @@ if missing:
     )
     sys.exit(1)
 
-for name in (*required, *optional):
+for name in required:
     value = data.get(name)
     if value is None or not str(value).strip():
         continue
@@ -84,18 +74,13 @@ for name in (*required, *optional):
 PY
 )"
 
-if [[ -z "${API_ENV_FILE:-}" ]]; then
-  echo '::error::API_ENV_FILE is required (set it as a secret on the dev environment)'
-  exit 1
-fi
+az config set \
+  extension.use_dynamic_install=yes_without_prompt \
+  extension.dynamic_install_allow_preview=true \
+  --only-show-errors
 
-umask 077
-printf '%s' "$API_ENV_FILE" > "$BACKEND_ENV_FILE"
-unset API_ENV_FILE
-unset WEB_ENV_FILE
-
-az webapp show --name "$BACKEND_APP_NAME" --resource-group "$RESOURCE_GROUP" --output none
-az webapp show --name "$FRONTEND_APP_NAME" --resource-group "$RESOURCE_GROUP" --output none
+az containerapp show --name "$BACKEND_APP_NAME" --resource-group "$RESOURCE_GROUP" --output none
+az containerapp show --name "$FRONTEND_APP_NAME" --resource-group "$RESOURCE_GROUP" --output none
 
 digest_for() {
   local service="$1"
@@ -123,82 +108,16 @@ if [[ "$DEPLOY_SHA" != "$main_sha" ]]; then
   exit 1
 fi
 
-python3 - "$BACKEND_ENV_FILE" "$BACKEND_SETTINGS_JSON" <<'PY'
-import json
-import sys
-
-src, dest = sys.argv[1], sys.argv[2]
-settings = []
-with open(src, encoding="utf-8") as handle:
-    for raw in handle:
-        line = raw.strip().lstrip("\ufeff")
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        if "=" not in line:
-            print("::error::API_ENV_FILE has a line without '='", file=sys.stderr)
-            sys.exit(1)
-        name, value = line.split("=", 1)
-        name = name.strip()
-        if not name.isidentifier():
-            print("::error::API_ENV_FILE has an invalid setting name", file=sys.stderr)
-            sys.exit(1)
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-            value = value[1:-1]
-        settings.append({"name": name, "value": value, "slotSetting": False})
-
-if not settings:
-    print("::error::API_ENV_FILE contained no settings", file=sys.stderr)
-    sys.exit(1)
-
-with open(dest, "w", encoding="utf-8") as handle:
-    json.dump(settings, handle)
-PY
-
-az webapp config appsettings set \
+az containerapp update \
   --name "$BACKEND_APP_NAME" \
   --resource-group "$RESOURCE_GROUP" \
-  --settings @"$BACKEND_SETTINGS_JSON" \
+  --image "$BACKEND_IMAGE" \
   --output none
 
-python3 - "$FRONTEND_SETTINGS_JSON" <<'PY'
-import json
-import os
-import sys
-
-settings = [{"name": "NODE_ENV", "value": "production", "slotSetting": False}]
-for name in (
-    "NEXT_PUBLIC_API_BASE_URL",
-    "NEXT_PUBLIC_AZURE_AD_CLIENT_ID",
-    "NEXT_PUBLIC_AZURE_AD_TENANT_ID",
-):
-    value = os.environ.get(name, "").strip()
-    if value:
-        settings.append({"name": name, "value": value, "slotSetting": False})
-
-with open(sys.argv[1], "w", encoding="utf-8") as handle:
-    json.dump(settings, handle)
-PY
-
-az webapp config appsettings set \
+az containerapp update \
   --name "$FRONTEND_APP_NAME" \
   --resource-group "$RESOURCE_GROUP" \
-  --settings @"$FRONTEND_SETTINGS_JSON" \
-  --output none
-
-az webapp config container set \
-  --name "$BACKEND_APP_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --container-image-name "$BACKEND_IMAGE" \
-  --container-registry-url "https://$ACR_NAME.azurecr.io" \
-  --output none
-
-az webapp config container set \
-  --name "$FRONTEND_APP_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --container-image-name "$FRONTEND_IMAGE" \
-  --container-registry-url "https://$ACR_NAME.azurecr.io" \
+  --image "$FRONTEND_IMAGE" \
   --output none
 
 verify_health() {
@@ -209,11 +128,28 @@ verify_health() {
 }
 
 if ! verify_health; then
-  echo 'Health check did not pass; restarting both web apps'
-  az webapp restart --name "$BACKEND_APP_NAME" --resource-group "$RESOURCE_GROUP" --output none
-  az webapp restart --name "$FRONTEND_APP_NAME" --resource-group "$RESOURCE_GROUP" --output none
-  verify_health
+  echo '::error::Health check did not pass after deploying Container Apps'
+  az containerapp revision list \
+    --name "$BACKEND_APP_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --query "[].{revision:name,active:properties.active,health:properties.healthState,running:properties.runningState}" \
+    -o table
+  az containerapp revision list \
+    --name "$FRONTEND_APP_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --query "[].{revision:name,active:properties.active,health:properties.healthState,running:properties.runningState}" \
+    -o table
+  exit 1
 fi
+
+BACKEND_REVISION="$(az containerapp show \
+  --name "$BACKEND_APP_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query properties.latestRevisionName -o tsv)"
+FRONTEND_REVISION="$(az containerapp show \
+  --name "$FRONTEND_APP_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query properties.latestRevisionName -o tsv)"
 
 {
   echo "### Deployed images"
@@ -222,6 +158,8 @@ fi
   echo "- tag: \`$IMAGE_TAG\`"
   echo "- \`$BACKEND_IMAGE\`"
   echo "- \`$FRONTEND_IMAGE\`"
+  echo "- backend revision: \`$BACKEND_REVISION\`"
+  echo "- frontend revision: \`$FRONTEND_REVISION\`"
   echo "- backend: $BACKEND_URL"
   echo "- frontend: $FRONTEND_URL"
 } >> "$GITHUB_STEP_SUMMARY"
