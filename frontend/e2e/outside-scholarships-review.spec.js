@@ -12,6 +12,26 @@ const SUPPORTING_RESOLUTION = /Open the Supporting page\. If it is a check/i;
 const EXTRACTION_RESOLUTION = /Check each field against the images/i;
 const BAD_PID_VERIFY_GUIDANCE =
   'Fix the PID first. Mark verified stays disabled until every PID has nine digits.';
+const VERIFY_INVALID_AMOUNT_MESSAGE = 'Enter a valid amount before marking verified.';
+const VERIFY_PID_LOOKUP_MESSAGE = 'Looking up the changed PID before marking verified.';
+
+function buildExtractionFailedPreview(checkOverrides = {}) {
+  return {
+    ...preview,
+    checks: [
+      {
+        ...preview.checks[0],
+        provider: 'Example Foundation',
+        amount: '250.00',
+        name: 'Alex Example',
+        supporting_looks_like_check: false,
+        extraction_failed: true,
+        pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } }],
+        ...checkOverrides,
+      },
+    ],
+  };
+}
 
 async function stubReviewApis(page, previewBody, options = {}) {
   const lookupByPid =
@@ -24,6 +44,9 @@ async function stubReviewApis(page, previewBody, options = {}) {
   await page.route('**/api/banking/outside-scholarships/active-directory-names', async (route) => {
     const body = route.request().postDataJSON();
     const pids = Array.isArray(body?.pids) ? body.pids : [];
+    if (options.onLookup) {
+      options.onLookup(pids);
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -398,20 +421,7 @@ test.describe('Outside scholarships review flow', () => {
 
   // Om #55: per-check extraction failure is flag-only — other checks OK; this one needs Mark verified.
   test('extraction failed requires review until Mark verified', async ({ page }) => {
-    const extractionFailedPreview = {
-      ...preview,
-      checks: [
-        {
-          ...preview.checks[0],
-          provider: 'Example Foundation',
-          amount: '250.00',
-          name: 'Alex Example',
-          supporting_looks_like_check: false,
-          extraction_failed: true,
-          pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } }],
-        },
-      ],
-    };
+    const extractionFailedPreview = buildExtractionFailedPreview();
     await stubReviewApis(page, extractionFailedPreview);
     await uploadAndOpenReview(page);
 
@@ -440,6 +450,176 @@ test.describe('Outside scholarships review flow', () => {
       path: path.join(artifactsDir, 'outside-scholarships-extraction-failed.png'),
       fullPage: true,
     });
+  });
+
+  test('Mark verified commits an amount draft on a blank-provider check before export', async ({ page }) => {
+    let exportBody = null;
+    const extractionFailedPreview = buildExtractionFailedPreview({ provider: '' });
+    await stubReviewApis(page, extractionFailedPreview, {
+      onExport: (body) => {
+        exportBody = body;
+      },
+    });
+    await uploadAndOpenReview(page);
+
+    const amountInput = page.getByLabel('Amount for check 1');
+    await amountInput.fill('999.00');
+    await expect(amountInput).toHaveValue('999.00');
+
+    const verifyButton = page.getByRole('button', { name: 'Mark verified' });
+    await expect(verifyButton).toBeEnabled();
+    await verifyButton.click();
+
+    await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+    await expect(page.getByText(/0 of 1 left/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export Excel' }).click();
+    await downloadPromise;
+
+    await expect.poll(() => exportBody).not.toBeNull();
+    expect(exportBody.checks[0].reviewed.amount).toBe('999.00');
+    expect(exportBody.checks[0].reviewed.provider).toBe('');
+    expect(exportBody.checks[0].verified).toBe(true);
+  });
+
+  test('Mark verified refuses a non-numeric amount draft with a message that clears after fixing', async ({ page }) => {
+    const extractionFailedPreview = buildExtractionFailedPreview();
+    await stubReviewApis(page, extractionFailedPreview);
+    await uploadAndOpenReview(page);
+
+    const amountInput = page.getByLabel('Amount for check 1');
+    await amountInput.fill('abc');
+    await expect(amountInput).toHaveValue('abc');
+
+    const verifyButton = page.getByRole('button', { name: 'Mark verified' });
+    await expect(verifyButton).toBeEnabled();
+    await verifyButton.click();
+
+    await expect(page.getByText(VERIFY_INVALID_AMOUNT_MESSAGE).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Undo' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Mark verified' })).toBeVisible();
+    await expect(amountInput).toHaveValue('abc');
+    await expect(page.getByText(/Missing amount/i).first()).toBeVisible();
+    await expect(page.getByText(/1 of 1 left/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeDisabled();
+
+    await amountInput.fill('999.00');
+    await verifyButton.click();
+
+    await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+    await expect(page.getByText(VERIFY_INVALID_AMOUNT_MESSAGE)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
+  });
+
+  test('Mark verified commits a changed PID draft, looks it up, and waits for a second click', async ({ page }) => {
+    let exportBody = null;
+    const lookupRequests = [];
+    const changedPid = '987654321';
+    const extractionFailedPreview = buildExtractionFailedPreview({
+      pids: [{ pid: changedPid, active_directory: { status: 'found', name: AD_NAME } }],
+    });
+    await stubReviewApis(page, extractionFailedPreview, {
+      onLookup: (pids) => {
+        lookupRequests.push(...pids);
+      },
+      onExport: (body) => {
+        exportBody = body;
+      },
+    });
+    await uploadAndOpenReview(page);
+
+    const pidInput = page.getByLabel('PID for check 1');
+    await expect(pidInput).toHaveValue(changedPid);
+    await pidInput.fill(FIXED_PID);
+
+    const verifyButton = page.getByRole('button', { name: 'Mark verified' });
+    await verifyButton.click();
+
+    await expect(page.getByText(VERIFY_PID_LOOKUP_MESSAGE).first()).toBeVisible();
+    await expect.poll(() => lookupRequests).toContain(FIXED_PID);
+    await expect(page.getByRole('button', { name: 'Undo' })).toHaveCount(0);
+    await expect(page.getByText(AD_NAME, { exact: true })).toBeVisible({ timeout: 10_000 });
+
+    await verifyButton.click();
+    await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export Excel' }).click();
+    await downloadPromise;
+
+    await expect.poll(() => exportBody).not.toBeNull();
+    expect(exportBody.checks[0].reviewed.pids[0].pid).toBe(FIXED_PID);
+    expect(exportBody.checks[0].reviewed.pids[0].active_directory.name).toBe(AD_NAME);
+    expect(exportBody.checks[0].verified).toBe(true);
+  });
+
+  test('Tab from amount to Mark verified keeps the typed value', async ({ page }) => {
+    let exportBody = null;
+    await stubReviewApis(page, buildExtractionFailedPreview(), {
+      onExport: (body) => {
+        exportBody = body;
+      },
+    });
+    await uploadAndOpenReview(page);
+
+    const amountInput = page.getByLabel('Amount for check 1');
+    await amountInput.click();
+    await amountInput.fill('777.00');
+    await expect(amountInput).toHaveValue('777.00');
+
+    const verifyButton = page.getByRole('button', { name: 'Mark verified' });
+    for (let i = 0; i < 8; i += 1) {
+      await page.keyboard.press('Tab');
+      if (await verifyButton.evaluate((element) => document.activeElement === element)) break;
+    }
+    await expect(verifyButton).toBeFocused();
+    await page.keyboard.press('Space');
+
+    await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export Excel' }).click();
+    await downloadPromise;
+
+    await expect.poll(() => exportBody).not.toBeNull();
+    expect(exportBody.checks[0].reviewed.amount).toBe('777.00');
+    expect(exportBody.checks[0].verified).toBe(true);
+  });
+
+  test('Escape reverts an amount draft', async ({ page }) => {
+    await stubReviewApis(page, buildExtractionFailedPreview());
+    await uploadAndOpenReview(page);
+
+    const amountInput = page.getByLabel('Amount for check 1');
+    await amountInput.fill('888.00');
+    await expect(amountInput).toHaveValue('888.00');
+    await amountInput.press('Escape');
+    await expect(amountInput).toHaveValue('250.00');
+  });
+
+  test('blurring a changed PID runs lookup without showing No AD match', async ({ page }) => {
+    const lookupRequests = [];
+    await stubReviewApis(
+      page,
+      buildExtractionFailedPreview({
+        pids: [{ pid: '987654321', active_directory: { status: 'found', name: AD_NAME } }],
+      }),
+      {
+        onLookup: (pids) => {
+          lookupRequests.push(...pids);
+        },
+      }
+    );
+    await uploadAndOpenReview(page);
+
+    const pidInput = page.getByLabel('PID for check 1');
+    await pidInput.fill(FIXED_PID);
+    await page.getByLabel('Amount for check 1').click();
+
+    await expect.poll(() => lookupRequests).toContain(FIXED_PID);
+    await expect(page.getByText(/No AD match/i)).toHaveCount(0);
+    await expect(page.getByText(AD_NAME, { exact: true })).toBeVisible({ timeout: 10_000 });
   });
 
   test('supporting flag plus incomplete PID amount split does not emphasize Mark verified', async ({ page }) => {
@@ -723,8 +903,8 @@ test.describe('Outside scholarships review flow', () => {
     await page.screenshot({ path: path.join(artifactsDir, 'outside-scholarships-name-mismatch-resolved.png'), fullPage: true });
   });
 
-  // Provider commits on Enter only — typing a valid short name must not auto-advance mid-edit.
-  test('provider draft does not auto-advance until Enter', async ({ page }) => {
+  // Typing a valid short provider must not auto-advance mid-edit.
+  test('provider draft does not auto-advance while editing', async ({ page }) => {
     const longProvider = 'Henderson County Education Foundation Inc';
     expect(longProvider.length).toBeGreaterThan(30);
 
@@ -786,8 +966,8 @@ test.describe('Outside scholarships review flow', () => {
     await expect(page.getByText(/Missing provider/i).first()).toBeVisible();
   });
 
-  // Amount commits on Enter only — typing a valid amount must not auto-advance mid-edit.
-  test('amount draft does not auto-advance until Enter', async ({ page }) => {
+  // Typing a valid amount must not auto-advance mid-edit.
+  test('amount draft does not auto-advance while editing', async ({ page }) => {
     const okPid = {
       pid: FIXED_PID,
       active_directory: { status: 'found', name: AD_NAME },

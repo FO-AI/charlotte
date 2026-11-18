@@ -38,6 +38,7 @@ import {
   checkStatus,
   hasNonBlankBadPid,
   hasMultipleNonBlankPids,
+  isValidAmount,
   isWellFormedPid,
   missingRequiredFields,
   normalizePidDigits,
@@ -67,6 +68,8 @@ const VERIFY_EMPHASIS_CLASS = 'ring-2 ring-navy/40 ring-offset-2 shadow-sm';
 const VERIFY_EMPHASIS = 'resolve-flag';
 const VERIFY_DISABLED_BAD_PID_MESSAGE =
   'Fix the PID first. Mark verified stays disabled until every PID has nine digits.';
+const VERIFY_INVALID_AMOUNT_MESSAGE = 'Enter a valid amount before marking verified.',
+  VERIFY_PID_LOOKUP_MESSAGE = 'Looking up the changed PID before marking verified.';
 
 const LIGHTBOX_MIN_ZOOM = 1;
 const LIGHTBOX_MAX_ZOOM = 4;
@@ -494,9 +497,10 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const [successMessage, setSuccessMessage] = useState('');
   const [liveMessage, setLiveMessage] = useState('');
   const [dirty, setDirty] = useState(false);
-  // Zoopable field edits stay local until Enter so Needs review / auto-advance do not fire mid-type.
+  // Zoopable field edits stay local until Enter/blur so Needs review / auto-advance do not fire mid-type.
   // Shape: { checkIndex, field: 'amount'|'check_number'|'provider'|'pid'|'pid_amount', pidKey?, value }
   const [fieldDraft, setFieldDraft] = useState(null);
+  const [verifyRefusal, setVerifyRefusal] = useState(null);
   const lookupSeqRef = useRef({});
   const rowRefs = useRef({});
   // Tracks needs-review for the *same* check only — used so selecting another check
@@ -695,6 +699,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
 
   const selectCheckByAbsoluteIndex = useCallback((index) => {
     setFieldDraft(null);
+    setVerifyRefusal(null);
     setSelectedIndex(index);
     const check = checksRef.current[index];
     if (check) {
@@ -721,6 +726,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const beginFieldDraft = useCallback(
     (field, value, pidKey) => {
       if (!selectedCheck) return;
+      setVerifyRefusal(null);
       setFieldDraft({
         checkIndex: selectedCheck.check_index,
         field,
@@ -731,68 +737,71 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     [selectedCheck]
   );
 
+  function commitDraftToCheck(check, draft) {
+    if (!check || !draft || draft.checkIndex !== check.check_index) return { check, committed: false, value: '' };
+    const finish = (next, value) => ({ check: next, committed: true, value });
+    const { field, pidKey } = draft;
+    if (field === 'amount' || field === 'check_number') {
+      const value = String(draft.value ?? '').trim();
+      return finish(value === String(check[field] ?? '') ? check : { ...check, [field]: value }, value);
+    }
+    if (field === 'provider') {
+      const value = String(draft.value ?? '').trim().slice(0, PROVIDER_MAX_LENGTH);
+      return finish(value === String(check.provider ?? '') ? check : { ...check, provider: value }, value);
+    }
+    const value =
+      field === 'pid'
+        ? normalizePidDigits(draft.value).slice(0, 9)
+        : String(draft.value ?? '').trim();
+    const next = [...(check.pids || [])];
+    const idx = next.findIndex((item) => item._key === pidKey);
+    if (idx < 0) return { check, committed: false, value };
+    if (field === 'pid_amount') {
+      if (value === String(next[idx]?.amount ?? '')) return finish(check, value);
+      next[idx] = { ...next[idx], amount: value };
+      return finish({ ...check, pids: next }, value);
+    }
+    if (field === 'pid') {
+      if (value === String(next[idx]?.pid ?? '')) return finish(check, value);
+      // Only reset AD when the PID actually changes. Clearing AD on a no-op commit
+      // races lookupPid's early-return (stale checksRef) and drops a good match.
+      next[idx] = {
+        ...next[idx],
+        pid: value,
+        active_directory: { status: 'not_found', name: null },
+        lookingUp: false,
+        _lookedUpFor: undefined,
+      };
+      return finish({ ...check, pids: next }, value);
+    }
+    return { check, committed: false, value };
+  }
+
   /** Commit matching draft (if any). Returns the value now stored on the check for that field. */
-  const commitFieldDraftFor = useCallback(
-    (field, pidKey) => {
-      if (!selectedCheck) return committedFieldValue(null, field, pidKey);
-      const matches =
-        fieldDraft &&
-        fieldDraft.checkIndex === selectedCheck.check_index &&
-        fieldDraft.field === field &&
-        ((field !== 'pid' && field !== 'pid_amount') || fieldDraft.pidKey === pidKey);
+  function commitFieldDraftFor(field, pidKey, autoAdvance = true) {
+    if (!selectedCheck) return committedFieldValue(null, field, pidKey);
+    const matches =
+      fieldDraft &&
+      fieldDraft.checkIndex === selectedCheck.check_index &&
+      fieldDraft.field === field &&
+      ((field !== 'pid' && field !== 'pid_amount') || fieldDraft.pidKey === pidKey);
 
-      if (!matches) {
-        return committedFieldValue(selectedCheck, field, pidKey);
-      }
+    if (!matches) {
+      return committedFieldValue(selectedCheck, field, pidKey);
+    }
 
-      let committed = String(fieldDraft.value ?? '');
-      if (field === 'amount' || field === 'check_number') {
-        committed = committed.trim();
-        updateCheck(selectedCheck.check_index, (current) => ({
-          ...current,
-          [field]: committed,
-        }));
-      } else if (field === 'provider') {
-        committed = committed.trim().slice(0, PROVIDER_MAX_LENGTH);
-        updateCheck(selectedCheck.check_index, (current) => ({
-          ...current,
-          provider: committed,
-        }));
-      } else if (field === 'pid') {
-        committed = normalizePidDigits(committed).slice(0, 9);
-        const previous = committedFieldValue(selectedCheck, 'pid', pidKey);
-        // Only reset AD when the PID actually changes. Clearing AD on a no-op commit
-        // races lookupPid's early-return (stale checksRef) and drops a good match.
-        if (committed !== previous) {
-          updateCheck(selectedCheck.check_index, (current) => {
-            const next = [...(current.pids || [])];
-            const idx = next.findIndex((item) => item._key === pidKey);
-            if (idx < 0) return current;
-            next[idx] = {
-              ...next[idx],
-              pid: committed,
-              active_directory: { status: 'not_found', name: null },
-              lookingUp: false,
-              _lookedUpFor: undefined,
-            };
-            return { ...current, pids: next };
-          });
-        }
-      } else if (field === 'pid_amount') {
-        committed = committed.trim();
-        updateCheck(selectedCheck.check_index, (current) => {
-          const next = [...(current.pids || [])];
-          const idx = next.findIndex((item) => item._key === pidKey);
-          if (idx < 0) return current;
-          next[idx] = { ...next[idx], amount: committed };
-          return { ...current, pids: next };
-        });
-      }
-      setFieldDraft(null);
-      return committed;
-    },
-    [selectedCheck, fieldDraft, committedFieldValue, updateCheck]
-  );
+    const { check: nextSelectedCheck, value: committed } = commitDraftToCheck(
+      selectedCheck,
+      fieldDraft
+    );
+    setVerifyRefusal(null);
+    updateCheck(selectedCheck.check_index, (current) => commitDraftToCheck(current, fieldDraft).check);
+    if (nextSelectedCheck !== selectedCheck && !autoAdvance) {
+      prevNeedsReviewRef.current = null;
+    }
+    setFieldDraft(null);
+    return committed;
+  }
 
   // Drop an in-progress field draft when the selected check changes from elsewhere.
   useEffect(() => {
@@ -969,6 +978,13 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     [apiClient, updateCheck]
   );
 
+  function commitPidDraftOnBlur(pidKey) {
+    if (!selectedCheck) return;
+    const previous = committedFieldValue(selectedCheck, 'pid', pidKey);
+    const committed = commitFieldDraftFor('pid', pidKey, false);
+    if (committed !== previous) lookupPid(selectedCheck.check_index, pidKey, committed);
+  }
+
   const buildExportPayload = () => {
     const extracted = extractedRef.current;
     return {
@@ -1053,16 +1069,62 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     }
   };
 
+  function verifyRefusalForCommit(before, { check, committed, value }, draft) {
+    if (!draft || !committed || check === before) return '';
+    const beforeValue = committedFieldValue(before, draft.field, draft.pidKey);
+    const afterValue = committedFieldValue(check, draft.field, draft.pidKey);
+
+    if (
+      (draft.field === 'amount' || draft.field === 'pid_amount') &&
+      isValidAmount(beforeValue) &&
+      String(afterValue).trim() &&
+      !isValidAmount(afterValue)
+    ) {
+      return VERIFY_INVALID_AMOUNT_MESSAGE;
+    }
+    if (!hasNonBlankBadPid(before) && hasNonBlankBadPid(check)) return VERIFY_DISABLED_BAD_PID_MESSAGE;
+    if (missingRequiredFields(check).length > missingRequiredFields(before).length) {
+      return draft.field === 'amount' ? VERIFY_INVALID_AMOUNT_MESSAGE : 'Fix the changed field before marking verified.';
+    }
+    return draft.field === 'pid' && value && isWellFormedPid(value) ? VERIFY_PID_LOOKUP_MESSAGE : '';
+  }
+
   const toggleVerified = () => {
     if (!selectedCheck) return;
-    setChecks((prev) =>
-      prev.map((item) =>
-        item.check_index === selectedCheck.check_index
-          ? { ...item, verified: !item.verified }
-          : item
-      )
+    const draftToCommit =
+      fieldDraft && fieldDraft.checkIndex === selectedCheck.check_index ? fieldDraft : null;
+    const current = checksRef.current.find(
+      (check) => check.check_index === selectedCheck.check_index
+    ) || selectedCheck;
+    const previewResult = commitDraftToCheck(current, draftToCommit);
+    const verifying = !current.verified;
+    const refusal = verifying ? verifyRefusalForCommit(current, previewResult, draftToCommit) : '';
+    const pidChanged =
+      draftToCommit?.field === 'pid' && previewResult.check !== current
+        ? { pidKey: draftToCommit.pidKey, value: previewResult.value }
+        : null;
+
+    setVerifyRefusal(null);
+    updateCheck(
+      selectedCheck.check_index,
+      (currentCheck) => {
+        const result = commitDraftToCheck(currentCheck, draftToCommit);
+        const nextVerifying = !currentCheck.verified;
+        // Compare latest current vs. committed draft so old missing fields or no-op drafts do not block.
+        if (nextVerifying && verifyRefusalForCommit(currentCheck, result, draftToCommit)) {
+          return result.check;
+        }
+        return { ...result.check, verified: nextVerifying };
+      },
+      { clearVerified: false }
     );
-    markDirty();
+    if (draftToCommit) setFieldDraft(null);
+    if (refusal) {
+      setVerifyRefusal({ checkIndex: selectedCheck.check_index, message: refusal });
+    }
+    if (pidChanged) {
+      lookupPid(selectedCheck.check_index, pidChanged.pidKey, pidChanged.value);
+    }
   };
 
   const amountInvalid = missingFields.includes('amount');
@@ -1071,6 +1133,9 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
     missingFields.includes('provider') || missingFields.includes('provider length');
   const payeeNameInvalid = Boolean(selectedNameMismatchFlag);
   const pidSectionInvalid = Boolean(selectedMultiPidFlag || selectedAmountSplitFlag);
+  const selectedVerifyRefusal =
+    selectedCheck && verifyRefusal?.checkIndex === selectedCheck.check_index ? verifyRefusal.message : '';
+  const verifyRefusalId = selectedCheck ? `verify-refusal-${selectedCheck.check_index}` : undefined;
   const verifyDisabled = Boolean(selectedCheck && !selectedCheck.verified && selectedHasBadPid);
   const verifyDisabledGuidanceId = selectedCheck
     ? `verify-disabled-bad-pid-${selectedCheck.check_index}`
@@ -1078,11 +1143,13 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
   const allIssuesResolvedByVerify =
     issueFlags.length > 0 && issueFlags.every((flag) => flag.resolvedByVerify);
   const emphasizeVerify = allIssuesResolvedByVerify && Boolean(verifyResolutionIds) && !verifyDisabled;
-  const verifyButtonDescriptionIds = verifyDisabled
+  const verifyBaseDescriptionIds = verifyDisabled
     ? verifyDisabledGuidanceId
     : emphasizeVerify
       ? verifyResolutionIds
       : undefined;
+  const verifyButtonDescriptionIds =
+    [verifyBaseDescriptionIds, selectedVerifyRefusal ? verifyRefusalId : null].filter(Boolean).join(' ') || undefined;
 
   return (
     <TooltipProvider>
@@ -1494,9 +1561,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                 revertFieldDraft();
                               }
                             }}
-                            onBlur={() => {
-                              if (fieldDraftMatches('amount')) revertFieldDraft();
-                            }}
+                            onBlur={() => commitFieldDraftFor('amount', undefined, false)}
                           />
                           <EditedMarker
                             show={
@@ -1530,9 +1595,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                 revertFieldDraft();
                               }
                             }}
-                            onBlur={() => {
-                              if (fieldDraftMatches('check_number')) revertFieldDraft();
-                            }}
+                            onBlur={() => commitFieldDraftFor('check_number', undefined, false)}
                           />
                           <EditedMarker
                             show={
@@ -1571,9 +1634,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                 revertFieldDraft();
                               }
                             }}
-                            onBlur={() => {
-                              if (fieldDraftMatches('provider')) revertFieldDraft();
-                            }}
+                            onBlur={() => commitFieldDraftFor('provider', undefined, false)}
                           />
                           <EditedMarker
                             show={
@@ -1658,13 +1719,19 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                               className={emphasizeVerify ? VERIFY_EMPHASIS_CLASS : undefined}
                               data-emphasis={emphasizeVerify ? VERIFY_EMPHASIS : undefined}
                               aria-describedby={verifyButtonDescriptionIds}
+                              onMouseDown={(event) => {
+                                // Keep field focus so blur does not discard an uncommitted draft.
+                                event.preventDefault();
+                              }}
                               onClick={toggleVerified}
                               disabled={verifyDisabled}
                             >
                               {emphasizeVerify ? <CheckCircle2 aria-hidden="true" /> : null}
                               {selectedCheck.verified ? 'Undo' : 'Mark verified'}
                             </Button>
-                            {!selectedCheck.verified && selectedHasBadPid ? (
+                            {selectedVerifyRefusal ? (
+                              <span id={verifyRefusalId} className="max-w-[13rem] text-right text-xs leading-tight text-red-700">{selectedVerifyRefusal}</span>
+                            ) : !selectedCheck.verified && selectedHasBadPid ? (
                               <span className="text-xs text-red-700">Bad PID</span>
                             ) : null}
                           </div>
@@ -1730,9 +1797,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                           revertFieldDraft();
                                         }
                                       }}
-                                      onBlur={() => {
-                                        if (fieldDraftMatches('pid', pidKey)) revertFieldDraft();
-                                      }}
+                                      onBlur={() => commitPidDraftOnBlur(pidKey)}
                                     />
                                     <Button
                                       type="button"
@@ -1794,9 +1859,7 @@ export default function OutsideScholarshipsReview({ preview, onClose, returnFocu
                                             revertFieldDraft();
                                           }
                                         }}
-                                        onBlur={() => {
-                                          if (fieldDraftMatches('pid_amount', pidKey)) revertFieldDraft();
-                                        }}
+                                        onBlur={() => commitFieldDraftFor('pid_amount', pidKey, false)}
                                       />
                                       <EditedMarker
                                         show={String(entry.amount ?? '') !== String(extractedAmount ?? '')}
