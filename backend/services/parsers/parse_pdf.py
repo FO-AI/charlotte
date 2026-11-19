@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Master EDI Report Parser using PyPDF2
+Master EDI Report Parser using pypdf
 Parses master EDI PDF documents and extracts transactions with additional fields like "lines"
 """
 
@@ -8,7 +8,7 @@ import os
 import sys
 import json
 import re
-import PyPDF2
+import pypdf
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -281,7 +281,7 @@ def parse_pdf(pdf_path: str, output_json_path: str = None) -> dict:
     
     try:
         with open(pdf_path, 'rb') as file:
-            reader = PyPDF2.PdfReader(file)
+            reader = pypdf.PdfReader(file)
             total_pages = len(reader.pages)
             output_data["total_pages"] = total_pages
             
@@ -342,7 +342,7 @@ def parse_pdf(pdf_path: str, output_json_path: str = None) -> dict:
             
             return output_data
             
-    except PyPDF2.errors.PdfReadError as e:
+    except pypdf.errors.PdfReadError as e:
         print(f"Error: Failed to read PDF file: {e}")
         return {}
     except Exception as e:
