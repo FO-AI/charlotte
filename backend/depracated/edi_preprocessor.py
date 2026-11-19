@@ -3,7 +3,7 @@ import re
 import logging
 from typing import List, Dict, Optional
 from datetime import datetime
-import PyPDF2
+import pypdf
 from dataclasses import dataclass
 from io import BytesIO
 
@@ -79,7 +79,7 @@ class EDITransactionExtractor:
         """Extract text from PDF bytes (downloaded from Azure Blob)."""
         try:
             with BytesIO(pdf_bytes) as byte_stream:
-                reader = PyPDF2.PdfReader(byte_stream)
+                reader = pypdf.PdfReader(byte_stream)
                 text = ""
                 for page in reader.pages:
                     text += page.extract_text() + "\n"
