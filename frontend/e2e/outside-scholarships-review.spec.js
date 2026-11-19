@@ -8,7 +8,7 @@ const preview = JSON.parse(
 
 const FIXED_PID = '123456789';
 const AD_NAME = 'Example, Alex';
-const SUPPORTING_RESOLUTION = /Open the Supporting page and compare it to the front/i;
+const SUPPORTING_RESOLUTION = /Open the Supporting page\. If it is a check/i;
 const EXTRACTION_RESOLUTION = /Check each field against the images/i;
 const BAD_PID_VERIFY_GUIDANCE =
   'Fix the PID first. Mark verified stays disabled until every PID has nine digits.';
@@ -24,7 +24,7 @@ function buildExtractionFailedPreview(checkOverrides = {}) {
         provider: 'Example Foundation',
         amount: '250.00',
         name: 'Alex Example',
-        supporting_has_amount_and_pid: false,
+        supporting_looks_like_check: false,
         extraction_failed: true,
         pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } }],
         ...checkOverrides,
@@ -318,7 +318,7 @@ test.describe('Outside scholarships review flow', () => {
     await page.screenshot({ path: path.join(artifactsDir, 'outside-scholarships-multi-pid.png'), fullPage: true });
   });
 
-  // Om #55: supporting page with its own amount+PID is flag-only — export blocked until Mark verified.
+  // Om #55: supporting page that looks like a check is flag-only — export blocked until Mark verified.
   test('supporting looks like check requires review until Mark verified', async ({ page }) => {
     const image = preview.checks[0].front_image;
     const supportingLooksLikeCheckPreview = {
@@ -331,7 +331,7 @@ test.describe('Outside scholarships review flow', () => {
           name: 'Alex Example',
           supporting_pages: [2],
           supporting_images: [image],
-          supporting_has_amount_and_pid: true,
+          supporting_looks_like_check: true,
           extraction_failed: false,
           pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } }],
         },
@@ -380,6 +380,41 @@ test.describe('Outside scholarships review flow', () => {
 
     await page.screenshot({
       path: path.join(artifactsDir, 'outside-scholarships-supporting-looks-like-check.png'),
+      fullPage: true,
+    });
+  });
+
+  test('award-letter supporting page does not require supporting-check review', async ({ page }) => {
+    const image = preview.checks[0].front_image;
+    const awardLetterPreview = {
+      ...preview,
+      checks: [
+        {
+          ...preview.checks[0],
+          provider: 'Example Foundation',
+          amount: '250.00',
+          check_number: '1001',
+          name: 'Alex Example',
+          supporting_pages: [2],
+          supporting_images: [image],
+          supporting_looks_like_check: false,
+          extraction_failed: false,
+          pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } }],
+        },
+      ],
+    };
+    await stubReviewApis(page, awardLetterPreview);
+    await uploadAndOpenReview(page);
+
+    await expect(page.getByText(/Supporting looks like check/i)).toBeHidden();
+    await expect(page.getByRole('status').filter({ hasText: 'Needs review' })).toHaveCount(0);
+    await expect(page.getByText(/0 of 1 left/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export Excel' })).toBeEnabled();
+
+    const artifactsDir = path.join(__dirname, 'artifacts');
+    fs.mkdirSync(artifactsDir, { recursive: true });
+    await page.screenshot({
+      path: path.join(artifactsDir, 'outside-scholarships-award-letter-supporting-no-review.png'),
       fullPage: true,
     });
   });
@@ -599,7 +634,7 @@ test.describe('Outside scholarships review flow', () => {
           name: 'Alex Example',
           supporting_pages: [2],
           supporting_images: [image],
-          supporting_has_amount_and_pid: true,
+          supporting_looks_like_check: true,
           extraction_failed: false,
           pids: [
             { pid: FIXED_PID, amount: '100.00', active_directory: { status: 'found', name: AD_NAME } },
@@ -640,7 +675,7 @@ test.describe('Outside scholarships review flow', () => {
           name: 'Alex Example',
           supporting_pages: [2],
           supporting_images: [image],
-          supporting_has_amount_and_pid: true,
+          supporting_looks_like_check: true,
           extraction_failed: false,
           pids: [{ pid: '12345678', active_directory: { status: 'not_found', name: null } }],
         },
@@ -673,7 +708,7 @@ test.describe('Outside scholarships review flow', () => {
           name: 'Alex Example',
           supporting_pages: [2],
           supporting_images: [image],
-          supporting_has_amount_and_pid: true,
+          supporting_looks_like_check: true,
           extraction_failed: true,
           pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } }],
         },
@@ -708,7 +743,7 @@ test.describe('Outside scholarships review flow', () => {
           name: 'Alex Example',
           supporting_pages: [2],
           supporting_images: [image],
-          supporting_has_amount_and_pid: true,
+          supporting_looks_like_check: true,
           extraction_failed: false,
           pids: [{ pid: FIXED_PID, active_directory: { status: 'found', name: AD_NAME } }],
         },
@@ -721,7 +756,7 @@ test.describe('Outside scholarships review flow', () => {
           name: 'Alex Example',
           supporting_pages: [3],
           supporting_images: [image],
-          supporting_has_amount_and_pid: true,
+          supporting_looks_like_check: true,
           extraction_failed: false,
           pids: [
             { pid: FIXED_PID, amount: '100.00', active_directory: { status: 'found', name: AD_NAME } },
@@ -759,7 +794,7 @@ test.describe('Outside scholarships review flow', () => {
         {
           ...preview.checks[0],
           provider: 'Example Foundation',
-          supporting_has_amount_and_pid: true,
+          supporting_looks_like_check: false,
           pids: [
             { pid: FIXED_PID, amount: '100.00', active_directory: { status: 'found', name: AD_NAME } },
             { pid: '987654321', amount: '150.00', active_directory: { status: 'found', name: AD_NAME } },

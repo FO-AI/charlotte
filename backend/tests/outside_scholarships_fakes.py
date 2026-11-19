@@ -66,6 +66,7 @@ class ScriptedPage:
     supporting_amount: Optional[str] = None
     supporting_pid: Optional[str] = None
     supporting_roster: Optional[List[Dict[str, Any]]] = None
+    supporting_looks_like_check: bool = False
 
 
 def scripted_pages(sides, back_pids=None, supporting_by_page=None):
@@ -283,10 +284,7 @@ class FakeLLM:
                 student_name = page.student_name
             if page.aid_term:
                 aid_term = page.aid_term
-        supporting_has_amount_and_pid = any(
-            (page.supporting_amount and page.supporting_pid) or page.supporting_roster
-            for page in supporting
-        )
+        supporting_looks_like_check = any(page.supporting_looks_like_check for page in supporting)
         fields = {
             "pid_list": backs[0].pids if backs else [],
             "amount": check_amount(check_number),
@@ -295,7 +293,7 @@ class FakeLLM:
             "provider": f"Provider {check_number}",
             "scholarship_name": scholarship_name,
             "aid_term": aid_term,
-            "supporting_has_amount_and_pid": supporting_has_amount_and_pid,
+            "supporting_looks_like_check": supporting_looks_like_check,
         }
         pid_amounts = []
         for page in supporting:

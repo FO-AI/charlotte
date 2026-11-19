@@ -122,7 +122,10 @@ def test_prompt_ignores_an_unmarked_option_list():
     assert "printed list of options is not a selection" in EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
     assert "do not add that stray PID to pid_list" in EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
     assert "supporting roster" in EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
-    assert "supporting_has_amount_and_pid" in EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
+    assert "supporting_has_amount_and_pid" not in EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
+    assert "supporting_looks_like_check" in EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
+    assert "pay to the order of" in EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
+    assert "payment stub, voucher or roster" in EXTRACT_OUTSIDE_SCHOLARSHIP_PROMPT
     assert EXTRACT_SUPPORTING_ROSTER_PROMPT.splitlines()[0] == "Extract every student row"
     assert "exactly nine digits you can actually see" in EXTRACT_SUPPORTING_ROSTER_PROMPT
     assert "never padded with leading zeros" in EXTRACT_SUPPORTING_ROSTER_PROMPT
@@ -195,13 +198,15 @@ def test_supporting_pages_fill_name_scholarship_and_term_without_replacing_amoun
     assert first["supporting_pages"] == [3, 4]
     assert len(first["supporting_images"]) == 2
     assert all(image.startswith("data:image/jpeg;base64,") for image in first["supporting_images"])
-    assert first["supporting_has_amount_and_pid"] is True
+    assert "supporting_has_amount_and_pid" not in first
+    assert first["supporting_looks_like_check"] is False
     assert first["extraction_failed"] is False
     assert llm.image_counts_by_check()[1001] == 4
     assert second["aid_term"] is None
     assert second["supporting_images"] == []
     assert second["amount"] == "200.00"
-    assert second["supporting_has_amount_and_pid"] is False
+    assert "supporting_has_amount_and_pid" not in second
+    assert second["supporting_looks_like_check"] is False
 
     export_response = export_excel(client, app, preview)
     assert export_response.status_code == 200, export_response.text
@@ -209,6 +214,20 @@ def test_supporting_pages_fill_name_scholarship_and_term_without_replacing_amoun
     rows = list(worksheet.iter_rows(min_row=REVIEW_FIRST_DATA_ROW, values_only=True))
     assert rows[0][6] == "F/S"
     assert rows[1][6] == "F"
+
+
+def test_supporting_page_that_looks_like_check_is_in_preview_payload(client, override_auth, app):
+    response, _ = upload(
+        client,
+        app,
+        [FRONT, SUPPORTING],
+        back_pids={1001: "730000001"},
+        supporting_by_page={2: {"supporting_looks_like_check": True}},
+    )
+    assert response.status_code == 200, response.text
+    check = preview_payload(response)["checks"][0]
+    assert "supporting_has_amount_and_pid" not in check
+    assert check["supporting_looks_like_check"] is True
 
 
 def _excel_amounts(response):

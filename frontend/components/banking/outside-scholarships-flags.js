@@ -98,18 +98,16 @@ export function checkNameMismatchFlag(check) {
   };
 }
 
-/** Supporting page looks like its own check (amount + PID) — possible mis-group. */
+/** Supporting page looks like its own check — possible mis-group. */
 export function checkSupportingLooksLikeCheckFlag(check) {
-  if (!check?.supporting_has_amount_and_pid) return null;
-  const splitStatus = checkAmountSplitStatus(check);
-  if (splitStatus.applies && splitStatus.complete && splitStatus.matches) return null;
+  if (!check?.supporting_looks_like_check) return null;
   return {
     type: 'supporting_looks_like_check',
     shortLabel: 'Supporting looks like check',
     message:
-      'A supporting page has its own amount and PID. Confirm this check was grouped correctly before export.',
+      'A supporting page looks like a check. It may be a check that was grouped under the wrong check.',
     resolution:
-      'Open the Supporting page and compare it to the front. If it is for the same student and amount (usually an award letter), click Mark verified. If it looks like a separate check, do not verify it; flag it for re-upload.',
+      'Open the Supporting page. If it is a check (it has a check number or a payee line), the grouping is wrong: do not verify this check, and flag it for re-upload. If it is a letter or form, click Mark verified.',
     resolvedByVerify: true,
   };
 }
