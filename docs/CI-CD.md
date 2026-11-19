@@ -16,7 +16,7 @@ document covers only what is specific to Charlotte.
 | `scripts/publish.sh` | **Implemented.** Builds both images in ACR by commit SHA and proves digests. |
 | `.github/workflows/cd.yml` | **Wired, manual only.** `workflow_run` is commented out. |
 | `scripts/cd.sh` | **Implemented.** Promotes both images by digest and health-checks. CD stays manual until task 5. |
-| `scripts/docker-build-and-push.sh` | Old laptop deploy. **Still the way to ship** until `cd.sh` works. Delete it last. |
+| `scripts/docker-build-and-push.sh` | Old laptop deploy helper for the App Service path. Keep until the old path is retired. |
 
 ## How the pipeline fits together
 
@@ -35,7 +35,7 @@ The contract gives this repo three scripts with one job each:
 | --- | --- | --- |
 | `scripts/ci.sh <check>` | Runs one named check (`backend` or `frontend`). Sets its own fake env so it runs the same on a laptop. | Touch Azure. Read secrets. |
 | `scripts/publish.sh` | Builds `charlotte-backend:$IMAGE_TAG` and `charlotte-frontend:$IMAGE_TAG` in ACR in parallel and proves both resolve to digests. | Deploy. Tag `latest`. |
-| `scripts/cd.sh` | Looks up those digests, applies settings, points both web apps at `image@sha256:…`, rechecks `main`, verifies health. | Build. Take a digest from its environment. |
+| `scripts/cd.sh` | Looks up those digests, rechecks `main`, points both Container Apps at `image@sha256:…`, verifies health. | Build. Take a digest from its environment. Change app settings or secrets. |
 
 Both workflows are pinned to the FO-AI automation commit that Nimbus and Benny use
 (`4879ef3…`, the v2 interface). Only bump the pin in a PR, and bump both files together.
@@ -79,7 +79,7 @@ job runs without an environment, so it can read only repo-level values.
 | Name | Value |
 | --- | --- |
 | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | From the Azure setup below. |
-| `NEXT_PUBLIC_API_BASE_URL` | `https://charlotte-backend.azurewebsites.net` |
+| `NEXT_PUBLIC_API_BASE_URL` | Backend public URL, baked into the frontend image at build time. |
 | `NEXT_PUBLIC_AZURE_AD_CLIENT_ID`, `NEXT_PUBLIC_AZURE_AD_TENANT_ID` | Charlotte's Entra SPA client/tenant (public values; same as today's `AZURE_AD_*`). |
 | `ACR_NAME` | `charlotteacr`. **Set this last**: it switches the `publish` job on. |
 
@@ -91,17 +91,13 @@ job runs without an environment, so it can read only repo-level values.
 | `RESOURCE_GROUP` | `rg-primary-unc-foit-charlotte-ai` |
 | `ACR_NAME` | `charlotteacr` |
 | `BACKEND_APP_NAME` / `FRONTEND_APP_NAME` | `charlotte-backend` / `charlotte-frontend` |
-| `BACKEND_URL` / `FRONTEND_URL` | `https://charlotte-backend.azurewebsites.net` / the frontend URL |
+| `BACKEND_URL` / `FRONTEND_URL` | Backend and frontend Container App URLs used for health checks. |
 
-**`dev` environment secret `API_ENV_FILE`**: one multi-line secret in `.env` format holding every
-backend app setting the old script pushed with `az webapp config appsettings set`:
-`AZURE_SEARCH_*`, `AZURE_AI_PROJECT_ENDPOINT`, `AZURE_AI_RESOURCE_ENDPOINT`, `AZURE_AD_*`
-(including `AZURE_AD_CLIENT_SECRET` and `AZURE_AD_REDIRECT_URI`), `AZURE_AGENT_ID`,
-`AZURE_OPENAI_KEY`, `SMALL_MODEL_NAME`, `AZURE_MASTER_SEARCH_INDEX`, `AZURE_STORAGE_*`,
-`EDI_JSON_OUTPUT_CONTAINER`, `AZURE_MASTER_EDI_CONTAINER`, `AZURE_COSMOS_*`,
-`AZURE_ALIGNRX_REPORTS_CONTAINER`. The frontend has no runtime secrets, so
-`WEB_ENV_FILE` is not needed. `cd.sh` can set the frontend's non-secret app settings from the
-repository variables above.
+Container App environment variables and secrets live on `charlotte-backend` and
+`charlotte-frontend`, not in the deploy pipeline. Change nonsecret values with
+`az containerapp update --set-env-vars`; change secret values with `az containerapp secret set`
+and keep secret-backed variables as `secretref:` references. `cd.sh` ignores `API_ENV_FILE` and
+`WEB_ENV_FILE` even though the shared wrapper still passes them.
 
 Charlotte already has `Production` and `Preview` environments from earlier experiments. The
 FO-AI contract uses `dev`, so create `dev` and leave the other two alone.
@@ -120,19 +116,11 @@ The intern needs only the resulting IDs. These steps need rights on the Charlott
    Issuer `https://token.actions.githubusercontent.com`, audience `api://AzureADTokenExchange`.
 3. **Roles** for that identity:
    - `AcrPush` on `charlotteacr` (publish builds and pushes; deploy reads digests).
-   - `Website Contributor` on `charlotte-backend` and `charlotte-frontend`, or on the
+   - Container Apps update rights on `charlotte-backend` and `charlotte-frontend`, or on the
      resource group.
-4. **Have the web apps pull with managed identity** instead of ACR admin credentials. The old
-   script pulled admin creds with `az acr credential show`, and `cd.sh` should never handle a
-   registry password. For each web app:
-   ```bash
-   az webapp identity assign -g rg-primary-unc-foit-charlotte-ai -n <app>
-   az role assignment create --assignee <principalId> --role AcrPull \
-     --scope $(az acr show -n charlotteacr --query id -o tsv)
-   az webapp config set -g rg-primary-unc-foit-charlotte-ai -n <app> \
-     --generic-configurations '{"acrUseManagedIdentityCreds": true}'
-   ```
-   Once both apps deploy this way, disable the ACR admin user.
+4. **Container App registry pull is app-owned.** The Container Apps already have registry access
+   configured through their Container Apps registry secret. `cd.sh` should never handle a
+   registry password.
 5. Create the `dev` environment. Under *Deployment branches*, allow only `main`.
 
 ## Intern task list
@@ -149,9 +137,8 @@ Do these in order. Each one is a separate PR that must show green `verify`.
    `IMAGE_TAG=$(git rev-parse HEAD)`, then ask Om to set `ACR_NAME`. Merge, and confirm the
    `publish` job on `main` lists both digests in its summary. Finally, delete the
    `vars.ACR_NAME != ''` clause from `ci.yml`.
-4. **`scripts/cd.sh`.** Follow its TODOs. Ask Om to create `API_ENV_FILE`. Run CD manually
-   (Actions → CD → Run workflow) and confirm both apps serve the new digest and
-   `/api/health` returns 200.
+4. **`scripts/cd.sh`.** Follow its TODOs. Run CD manually (Actions → CD → Run workflow) and
+   confirm both Container Apps serve the new digest and `/api/health` returns 200.
 5. **Turn on automatic CD.** Uncomment `workflow_run` in `cd.yml`.
 6. **Retire the old path.** Delete `scripts/docker-build-and-push.sh` and ask Om to disable
    the ACR admin user. Keep `azure-setup.sh` and `cleanup-azure.sh`; those are one-time infra
@@ -163,10 +150,10 @@ Do these in order. Each one is a separate PR that must show green `verify`.
 | --- | --- |
 | `docker buildx build --push` both images | `publish.sh` via `az acr build` |
 | Tag `:$IMAGE_TAG` **and `:latest`** | `:<full commit SHA>` only; the contract forbids `latest`. |
-| `az acr credential show` (admin user) | OIDC for CI; managed identity for the web apps' pull. |
-| `az webapp config appsettings set` from local shell vars | `cd.sh`, reading `API_ENV_FILE` from the `dev` environment. |
-| `az webapp config container set …:$IMAGE_TAG` | `cd.sh`, with `…@sha256:<digest>` looked up from ACR. |
-| `az webapp restart` | `cd.sh`, only if needed, followed by a health check. |
+| `az acr credential show` (admin user) | OIDC for CI; Container Apps keep their own registry pull configuration. |
+| `az webapp config appsettings set` from local shell vars | Container App env vars and secrets, managed outside the pipeline with `az containerapp update --set-env-vars` and `az containerapp secret set`. |
+| `az webapp config container set …:$IMAGE_TAG` | `cd.sh`, with `az containerapp update --image …@sha256:<digest>` looked up from ACR. |
+| `az webapp restart` | No deploy restart fallback. `cd.sh` health-checks and prints revision diagnostics on failure. |
 
 ## Rules of the road
 
