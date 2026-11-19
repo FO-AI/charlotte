@@ -22,7 +22,7 @@ def _get_access_config() -> Dict:
     return _access_config_cache
 
 # Security scheme
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 def validate_jwt_token(token: str) -> Dict:
     """
@@ -73,9 +73,16 @@ def validate_jwt_token(token: str) -> Dict:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
     """Dependency to get current authenticated user from JWT token"""
     try:
+        if credentials is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
         user_info = validate_jwt_token(credentials.credentials)
         
         if not user_info.get("id"):
@@ -97,8 +104,15 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-def get_bearer_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+def get_bearer_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> str:
     """The caller's raw access token: a Microsoft Graph token, forwarded for delegated Graph calls."""
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return credentials.credentials
 
 async def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
