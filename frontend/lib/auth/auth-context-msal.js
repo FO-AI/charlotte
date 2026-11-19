@@ -4,7 +4,6 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import { useMsal, useIsAuthenticated } from "@azure/msal-react";
 import { InteractionRequiredAuthError, InteractionStatus } from "@azure/msal-browser";
 import { loginRequest } from './auth-config';
-import { sessionUtils } from '../../components/session-timer';
 import { rbaHelper } from './rba-helper';
 
 const AuthContext = createContext({});
@@ -24,6 +23,11 @@ export const AuthProvider = ({ children }) => {
   const { instance, accounts, inProgress } = useMsal();
   const msalAuthenticated = useIsAuthenticated();
   const [department, setDepartment] = useState(null);
+
+  // Clear the timestamp left by the removed 30-minute session timer.
+  useEffect(() => {
+    localStorage.removeItem('session_login_timestamp');
+  }, []);
 
   const getAccessToken = useCallback(async () => {
     const account = accounts[0];
@@ -84,13 +88,9 @@ export const AuthProvider = ({ children }) => {
       if (department === null) {
         rbaHelper.fetchUserDepartment(getAuthHeaders, setDepartment, setUser);
       }
-      if (!sessionUtils.hasActiveSession()) {
-        sessionUtils.startSession();
-      }
     } else {
       setUser(null);
       setDepartment(null);
-      sessionUtils.endSession();
     }
     setLoading(false);
   }, [accounts, department, inProgress, getAuthHeaders]);
@@ -107,7 +107,6 @@ export const AuthProvider = ({ children }) => {
             ...loginRequest,
             account: accounts[0],
           });
-          sessionUtils.startSession();
           setLoading(false);
           return;
         } catch {
@@ -115,7 +114,6 @@ export const AuthProvider = ({ children }) => {
         }
       }
 
-      sessionUtils.startSession();
       await instance.loginRedirect(loginRequest);
       // Page navigates away; no need to clear loading
     } catch (error) {
@@ -128,7 +126,6 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       setLoading(true);
-      sessionUtils.endSession();
       setUser(null);
       setDepartment(null);
       await instance.logoutRedirect({

@@ -1,15 +1,13 @@
 /**
  * User menu for the site header.
- * Shows session timer and sign-out for authenticated users.
+ * Shows sign-out controls for authenticated users.
  */
 
 'use client';
 
-import { useCallback } from "react";
 import { LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth/auth-context-msal";
-import SessionTimer from "@/components/session-timer";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,17 +20,12 @@ import {
 export default function Logout() {
   const { user, logout, isAuthenticated } = useAuth();
 
-  const handleSessionExpired = useCallback(() => {
-    logout();
-  }, [logout]);
-
   if (!isAuthenticated() || !user) {
     return null;
   }
 
   return (
     <div className="flex items-center gap-3">
-      <SessionTimer onSessionExpired={handleSessionExpired} />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
